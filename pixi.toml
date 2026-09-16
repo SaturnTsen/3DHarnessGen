@@ -1,0 +1,14 @@
+[workspace]
+channels = ["conda-forge"]
+name = "3DBootstrapLM"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+python = "3.12.*"
+
+[pypi-dependencies]
+vllm = ">=0.30.0, <0.31"
+huggingface-hub = ">=1.32.0, <2"
