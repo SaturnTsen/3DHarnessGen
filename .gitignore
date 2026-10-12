@@ -1,5 +1,14 @@
 /3DHarnessBench
-
+/data
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# post-training outputs and Python build artifacts
+/outputs/
+/*.egg-info/
+__pycache__/
+.pytest_cache/
+
+
+/AGENTS.md

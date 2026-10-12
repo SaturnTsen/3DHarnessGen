@@ -5,10 +5,33 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
+post-train = "python -m harness_training.cli"
+test-post-training = "python -m pytest tests/harness_training"
 
 [dependencies]
 python = "3.12.*"
+matplotlib = ">=3.11.2,<4"
+numpy = "==2.5.3"
 
 [pypi-dependencies]
-vllm = ">=0.30.0, <0.31"
+vllm = "==0.30.0"
 huggingface-hub = ">=1.32.0, <2"
+trl = ">=1.13.0, <2"
+pydantic-yaml = "==1.7.0"
+peft = "==0.21.2"
+bootstrap3d-post-training = { path = ".", editable = true }
+
+# Keep the existing NumPy version despite numba's older upper bound.
+# This makes the user's existing compatibility exception explicit to Pixi.
+[pypi-options.dependency-overrides]
+numpy = "==2.5.3"
+
+[feature.dev.pypi-dependencies]
+debugpy = "*"
+pytest = "==9.1.1"
+
+[feature.dev.dependencies]
+ipykernel = ">=7.4.0,<8"
+
+[environments]
+default = ["dev"]
