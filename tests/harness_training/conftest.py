@@ -56,6 +56,8 @@ def config(tmp_path):
     config.data.validation_fraction = 0
     config.data.test_fraction = 0
     config.model.dtype = "float32"
+    config.method.backend.bf16 = False
+    config.method.backend.dataloader_pin_memory = False
     config.template.min_image_pixels = 1024
     config.template.max_image_pixels = 1024
     config.template.max_length = 4096

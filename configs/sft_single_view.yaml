@@ -16,6 +16,127 @@ experiment:
   scene: Single-view
   seed: 42
 method:
+  backend:
+    accelerator_config: null
+    activation_offloading: false
+    adam_beta1: 0.9
+    adam_beta2: 0.999
+    adam_epsilon: 1e-08
+    assistant_only_loss: false
+    auto_find_batch_size: false
+    average_tokens_across_devices: true
+    batch_eval_metrics: false
+    bf16: true
+    bf16_full_eval: false
+    chat_template_path: null
+    completion_only_loss: false
+    data_seed: 42
+    dataloader_drop_last: false
+    dataloader_in_order: true
+    dataloader_multiprocessing_context: null
+    dataloader_persistent_workers: false
+    dataloader_pin_memory: true
+    dataloader_prefetch_factor: null
+    dataset_kwargs:
+      skip_prepare_dataset: true
+    dataset_num_proc: null
+    dataset_text_field: text
+    ddp_backend: null
+    ddp_broadcast_buffers: null
+    ddp_bucket_cap_mb: null
+    ddp_find_unused_parameters: null
+    ddp_static_graph: null
+    ddp_timeout: 1800
+    debug: ''
+    deepspeed: null
+    disable_tqdm: false
+    do_eval: true
+    do_predict: false
+    do_train: true
+    enable_jit_checkpoint: false
+    eos_token: null
+    eval_accumulation_steps: null
+    eval_delay: 0.0
+    eval_do_concat_batches: true
+    eval_on_start: false
+    eval_packing: false
+    eval_strategy: steps
+    eval_use_gather_object: false
+    fp16: false
+    fp16_full_eval: false
+    fsdp: null
+    fsdp_config: null
+    full_determinism: false
+    gradient_checkpointing_kwargs:
+      use_reentrant: false
+    greater_is_better: null
+    hub_always_push: false
+    hub_model_id: null
+    hub_private_repo: null
+    hub_revision: null
+    hub_strategy: every_save
+    hub_token: null
+    ignore_data_skip: false
+    include_for_metrics: []
+    include_num_input_tokens_seen: no
+    label_names:
+    - labels
+    label_smoothing_factor: 0.0
+    length_column_name: length
+    liger_kernel_config: null
+    load_best_model_at_end: false
+    local_rank: -1
+    log_level: passive
+    log_level_replica: warning
+    log_on_each_node: true
+    logging_first_step: false
+    logging_nan_inf_filter: true
+    logging_strategy: steps
+    loss_type: nll
+    lr_scheduler_kwargs: null
+    lr_scheduler_type: linear
+    max_grad_norm: 1.0
+    max_length: null
+    metric_for_best_model: null
+    model_init_kwargs: null
+    neftune_noise_alpha: null
+    optim: adamw_torch_fused
+    optim_args: null
+    optim_target_modules: null
+    packing: false
+    packing_strategy: bfd
+    pad_to_multiple_of: null
+    pad_token: null
+    padding_free: false
+    parallelism_config: null
+    per_device_eval_batch_size: 1
+    prediction_loss_only: false
+    project: huggingface
+    push_to_hub: false
+    remove_unused_columns: false
+    report_to:
+    - none
+    restore_callback_states_from_checkpoint: false
+    router_aux_loss_coef: 0.001
+    run_name: null
+    save_on_each_node: false
+    save_only_model: false
+    save_strategy: steps
+    shuffle_dataset: false
+    skip_memory_metrics: true
+    tf32: false
+    torch_compile: false
+    torch_compile_backend: null
+    torch_compile_mode: null
+    torch_empty_cache_steps: null
+    trackio_bucket_id: null
+    trackio_space_id: null
+    trackio_static_space_id: null
+    train_sampling_strategy: random
+    truncation_mode: keep_start
+    trust_remote_code: false
+    use_cache: false
+    use_liger_kernel: false
   batch_size: 1
   dataloader_workers: 0
   epochs: 1.0
@@ -29,15 +150,73 @@ method:
   resume_from: null
   save_steps: 100
   save_total_limit: 2
+  trainer:
+    callbacks: null
+    compute_loss_func: null
+    compute_metrics: null
+    formatting_func: null
+    optimizer_cls_and_kwargs: null
+    optimizers:
+    - null
+    - null
+    peft_config: null
+    preprocess_logits_for_metrics: null
+    quantization_config: null
   use_cpu: false
   warmup_ratio: 0.03
   weight_decay: 0.01
 model:
+  adapter:
+    adapter_name: default
+    autocast_adapter_dtype: true
+    low_cpu_mem_usage: false
+    mixed: false
+    revision: null
   attention_implementation: sdpa
   dtype: bfloat16
   freeze_vision: true
+  local_files_only: true
   lora:
     alpha: 32
+    backend:
+      alora_invocation_tokens: null
+      alpha_pattern: {}
+      arrow_config: null
+      auto_mapping: null
+      base_model_name_or_path: null
+      corda_config: null
+      ensure_weight_tying: false
+      eva_config: null
+      exclude_modules: null
+      fan_in_fan_out: false
+      inference_mode: false
+      init_lora_weights: true
+      kasa_config: null
+      layer_replication: null
+      layers_pattern: null
+      layers_to_transform: null
+      loftq_config: {}
+      lora_bias: false
+      lora_ga_config: null
+      megatron_config: null
+      megatron_core: megatron.core
+      modules_to_save: null
+      monteclora_config: null
+      peft_type: LORA
+      peft_version: null
+      qalora_group_size: 16
+      rank_pattern: {}
+      revision: null
+      runtime_config:
+        ephemeral_gpu_offload: false
+      target_parameters: null
+      trainable_token_indices: null
+      use_bdlora: null
+      use_dora: false
+      use_qalora: false
+      use_rslora: false
+      velora_config: null
+    bias: none
     dropout: 0.05
     rank: 16
     target_modules:
@@ -45,14 +224,29 @@ model:
     - k_proj
     - v_proj
     - o_proj
+    task_type: CAUSAL_LM
   name: qwen
   path: ~/models/Qwen3.8-27B
+  trust_remote_code: false
   tuning: lora
+  use_cache: false
 schema_version: 1
 template:
+  add_special_tokens: false
+  attention_padding_value: 0
   enable_thinking: false
+  image_mode: RGB
+  label_ignore_index: -100
   max_image_pixels: 262144
   max_length: 32768
   min_image_pixels: 65536
   name: qwen
+  padding: false
+  padding_side: right
+  prompt_add_generation_prompt: true
+  return_tensors: pt
+  target_add_generation_prompt: false
+  token_type_padding_value: 0
+  tokenize: false
   tools_path: null
+  truncation: false

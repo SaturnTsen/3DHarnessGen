@@ -18,8 +18,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.limit <= 0:
         parser.error("--limit must be positive")
-    trainer = Trainer(load_config(args.config))
     try:
+        trainer = Trainer(load_config(args.config))
         if args.command == "audit":
             result = trainer.audit()
         elif args.command == "prepare":

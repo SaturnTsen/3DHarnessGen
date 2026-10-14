@@ -6,7 +6,11 @@
 3DHarnessBench/runs/<setting>/gpt-6-astra/<instance>/post_train_trajectory/trajectory.jsonl
 ```
 
-模型、数据、模板和训练参数必须在 YAML 中显式填写；缺少字段会报错，代码不补默认值。`Trainer` 只接收完整配置并直接构造组件。
+模型、数据、模板和训练参数必须在 YAML 中显式填写；缺少字段会报错，代码不补默认值。`Trainer` 只接收完整配置，根据 `model.name` 和 `method.name` 选择并直接构造组件。当前实现 `qwen` 和 `sft`；不支持的名称明确报错，新增实现时在对应分支中接入，不回退到默认组件。
+
+`method.backend` 显式列出当前 TRL `SFTConfig` 的全部剩余参数，包括优化器、调度器、精度、验证、保存和数据加载设置；构造时检查字段完整性，不使用后端默认值。`method.trainer` 显式列出训练器的可选入口（当前自定义回调、损失函数和量化入口需填写 `null`）；`model.lora.backend` 与 `model.adapter` 同样显式控制 LoRA 和适配器初始化。新增后端版本的参数时，必须更新配置后才能运行。
+
+验证由 `method.backend.eval_strategy` 和 `do_eval` 显式控制；启用验证但没有可用验证样本时，在加载权重前报错。CPU 或 float32 测试需明确关闭 `bf16`、`fp16`。模板编码和批次补齐设置也必须填写；与当前样本索引、自定义标签或禁止截断规则不兼容的值由配置校验拒绝。
 
 代码位于项目根目录的 `harness_training/`。第一版实现 SFT。`Trainer` 是统一入口；data、templates、models 和 training methods 通过各自的 base 定义接口，使用具体类直接初始化。模型类持有模型和 Processor，template 将已有 ShareGPT 转为 Qwen 输入。数据不重新导出。
 

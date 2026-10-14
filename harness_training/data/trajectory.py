@@ -3,10 +3,32 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import cast
+
+from harness_training.types import JsonValue, SourceMapping, TrajectoryRow
 
 from harness_training.config import DataConfig, Scene
 from .base import BaseDataset, DatasetBundle, TrainingExample, TrajectoryRecord
-from .validation import DataError, validate_image
+from pathlib import Path
+
+class DataError(ValueError):
+    pass
+
+
+def validate_image(path: Path, decode: bool) -> str | None:
+    if not path.is_file():
+        return f"missing image: {path}"
+    if decode:
+        from PIL import Image
+
+        try:
+            with Image.open(path) as image:
+                image.verify()
+            with Image.open(path) as image:
+                image.load()
+        except (OSError, ValueError, Image.DecompressionBombError) as exc:
+            return f"unreadable image: {path}: {exc}"
+    return None
 
 
 class TrajectoryDataset(BaseDataset):
@@ -54,7 +76,7 @@ class TrajectoryDataset(BaseDataset):
                         getattr(bundle, split).append(example)
         return bundle
 
-    def _read_record(self, path: Path, line: int, instance: str, row: dict) -> TrajectoryRecord:
+    def _read_record(self, path: Path, line: int, instance: str, row: JsonValue) -> TrajectoryRecord:
         if not isinstance(row, dict) or not isinstance(row.get("conversations"), list):
             raise DataError("Expected existing ShareGPT conversations")
         if not isinstance(row.get("system", ""), str) or not isinstance(row.get("images", []), list):
@@ -80,10 +102,10 @@ class TrajectoryDataset(BaseDataset):
             image_index += count
         if image_index != len(images):
             raise DataError("Image placeholders do not match the images list")
-        return TrajectoryRecord(path, line, instance, row, tuple(bindings))
+        return TrajectoryRecord(path, line, instance, cast(TrajectoryRow, row), tuple(bindings))
 
     @staticmethod
-    def _mapping(record: TrajectoryRecord) -> list[dict]:
+    def _mapping(record: TrajectoryRecord) -> list[SourceMapping]:
         mapping = record.row.get("metadata", {}).get("sharegpt_conversion", {}).get("conversation_source_mapping")
         if not isinstance(mapping, list) or len(mapping) != len(record.row["conversations"]):
             raise DataError("Missing or inconsistent ShareGPT source mapping; cannot select original steps safely")

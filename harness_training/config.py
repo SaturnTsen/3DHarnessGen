@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_yaml import parse_yaml_raw_as, to_yaml_str
 
+from harness_training.types import JsonObject
+
 Scene = Literal["Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction"]
 
 
@@ -46,11 +48,23 @@ class DataConfig(StrictConfig):
 
 class TemplateConfig(StrictConfig):
     name: Literal["qwen"]
-    enable_thinking: Literal[False]
+    enable_thinking: bool
     tools_path: Path | None
     max_length: int = Field(ge=16)
     min_image_pixels: int = Field(ge=1024)
     max_image_pixels: int = Field(ge=1024)
+    padding_side: Literal["right"]
+    tokenize: Literal[False]
+    prompt_add_generation_prompt: Literal[True]
+    target_add_generation_prompt: Literal[False]
+    image_mode: Literal["RGB"]
+    return_tensors: Literal["pt"]
+    add_special_tokens: Literal[False]
+    padding: Literal[False]
+    truncation: Literal[False]
+    label_ignore_index: Literal[-100]
+    attention_padding_value: Literal[0]
+    token_type_padding_value: Literal[0]
 
     @model_validator(mode="after")
     def image_budget(self):
@@ -59,26 +73,225 @@ class TemplateConfig(StrictConfig):
         return self
 
 
+class LoRARuntimeConfig(StrictConfig):
+    ephemeral_gpu_offload: bool
+
+
+class LoRABackendConfig(StrictConfig):
+    peft_type: Literal["LORA"]
+    auto_mapping: JsonObject | None
+    peft_version: str | None
+    base_model_name_or_path: str | None
+    revision: str | None
+    inference_mode: Literal[False]
+    exclude_modules: list[str] | str | None
+    fan_in_fan_out: bool
+    use_rslora: bool
+    modules_to_save: list[str] | None
+    init_lora_weights: bool | str
+    layers_to_transform: list[int] | int | None
+    layers_pattern: list[str] | str | None
+    rank_pattern: dict[str, int]
+    alpha_pattern: dict[str, int]
+    megatron_config: JsonObject | None
+    megatron_core: str | None
+    trainable_token_indices: list[int] | dict[str, list[int]] | None
+    loftq_config: JsonObject
+    eva_config: Literal[None]
+    corda_config: Literal[None]
+    lora_ga_config: Literal[None]
+    use_dora: bool
+    velora_config: Literal[None]
+    alora_invocation_tokens: list[int] | None
+    use_qalora: bool
+    qalora_group_size: int
+    monteclora_config: Literal[None]
+    layer_replication: list[tuple[int, int]] | None
+    runtime_config: LoRARuntimeConfig
+    lora_bias: bool
+    target_parameters: list[str] | None
+    use_bdlora: Literal[None]
+    arrow_config: Literal[None]
+    kasa_config: Literal[None]
+    ensure_weight_tying: bool
+
+
+class AdapterConfig(StrictConfig):
+    adapter_name: str
+    mixed: Literal[False]
+    autocast_adapter_dtype: bool
+    revision: str | None
+    low_cpu_mem_usage: bool
+
+
 class LoRAConfig(StrictConfig):
     rank: int = Field(gt=0)
     alpha: int = Field(gt=0)
     dropout: float = Field(ge=0, lt=1)
     target_modules: list[str]
+    task_type: Literal["CAUSAL_LM"]
+    bias: Literal["none", "all", "lora_only"]
+    backend: LoRABackendConfig
 
 
 class ModelConfig(StrictConfig):
-    name: Literal["qwen"]
+    name: str = Field(min_length=1)
     path: Path
     dtype: Literal["bfloat16", "float16", "float32"]
     tuning: Literal["lora", "full"]
     freeze_vision: bool
     attention_implementation: Literal["sdpa", "eager", "flash_attention_2"]
     lora: LoRAConfig
+    adapter: AdapterConfig
+    local_files_only: bool
+    trust_remote_code: bool
+    use_cache: Literal[False]
+
+
+class CheckpointingConfig(StrictConfig):
+    use_reentrant: bool
+
+
+class DatasetPreparationConfig(StrictConfig):
+    skip_prepare_dataset: Literal[True]
+
+
+class SFTBackendConfig(StrictConfig):
+    lr_scheduler_type: str
+    lr_scheduler_kwargs: JsonObject | str | None
+    optim: str
+    optim_args: str | None
+    adam_beta1: float
+    adam_beta2: float
+    adam_epsilon: float
+    optim_target_modules: None | str | list[str]
+    average_tokens_across_devices: bool
+    max_grad_norm: float
+    label_smoothing_factor: float
+    bf16: bool
+    fp16: bool
+    bf16_full_eval: bool
+    fp16_full_eval: bool
+    tf32: bool
+    gradient_checkpointing_kwargs: CheckpointingConfig
+    torch_compile: bool
+    torch_compile_backend: str | None
+    torch_compile_mode: str | None
+    use_liger_kernel: bool
+    liger_kernel_config: dict[str, bool] | None
+    use_cache: Literal[False]
+    neftune_noise_alpha: float | None
+    torch_empty_cache_steps: int | None
+    auto_find_batch_size: bool
+    logging_strategy: str
+    logging_first_step: bool
+    log_on_each_node: bool
+    logging_nan_inf_filter: bool
+    include_num_input_tokens_seen: str | bool
+    log_level: str
+    log_level_replica: str
+    disable_tqdm: bool
+    report_to: None | str | list[str]
+    run_name: str | None
+    project: str
+    trackio_space_id: str | None
+    trackio_bucket_id: str | None
+    trackio_static_space_id: str | None | Literal[False]
+    eval_strategy: Literal["no", "steps", "epoch"]
+    eval_delay: float
+    per_device_eval_batch_size: int
+    prediction_loss_only: bool
+    eval_on_start: bool
+    eval_do_concat_batches: bool
+    eval_use_gather_object: bool
+    eval_accumulation_steps: int | None
+    include_for_metrics: list[str]
+    batch_eval_metrics: bool
+    save_only_model: bool
+    save_strategy: str
+    save_on_each_node: bool
+    enable_jit_checkpoint: bool
+    push_to_hub: bool
+    hub_token: str | None
+    hub_private_repo: bool | None
+    hub_model_id: str | None
+    hub_strategy: str
+    hub_always_push: bool
+    hub_revision: str | None
+    load_best_model_at_end: bool
+    metric_for_best_model: str | None
+    greater_is_better: bool | None
+    ignore_data_skip: bool
+    restore_callback_states_from_checkpoint: bool
+    full_determinism: bool
+    data_seed: int
+    accelerator_config: JsonObject | str | None
+    parallelism_config: Literal[None]
+    dataloader_drop_last: bool
+    dataloader_pin_memory: bool
+    dataloader_persistent_workers: bool
+    dataloader_prefetch_factor: int | None
+    dataloader_multiprocessing_context: str | None
+    dataloader_in_order: bool
+    remove_unused_columns: Literal[False]
+    label_names: list[str] | None
+    train_sampling_strategy: str
+    length_column_name: str
+    ddp_find_unused_parameters: bool | None
+    ddp_bucket_cap_mb: int | None
+    ddp_broadcast_buffers: bool | None
+    ddp_static_graph: bool | None
+    ddp_backend: str | None
+    ddp_timeout: int
+    fsdp: str | None
+    fsdp_config: JsonObject | str | None
+    deepspeed: JsonObject | str | None
+    debug: str | list[str]
+    skip_memory_metrics: bool
+    do_train: Literal[True]
+    do_eval: bool
+    do_predict: Literal[False]
+    local_rank: int
+    model_init_kwargs: Literal[None]
+    trust_remote_code: bool
+    router_aux_loss_coef: float
+    chat_template_path: Literal[None]
+    dataset_text_field: str
+    dataset_kwargs: DatasetPreparationConfig
+    dataset_num_proc: int | None
+    eos_token: str | None
+    max_length: Literal[None]
+    truncation_mode: str
+    shuffle_dataset: bool
+    packing: Literal[False]
+    packing_strategy: str
+    padding_free: Literal[False]
+    pad_to_multiple_of: Literal[None]
+    eval_packing: Literal[False]
+    completion_only_loss: Literal[False]
+    assistant_only_loss: Literal[False]
+    loss_type: Literal["nll", "chunked_nll", "dft"]
+    activation_offloading: bool
+    pad_token: Literal[None]
+
+
+class SFTTrainerConfig(StrictConfig):
+    compute_loss_func: Literal[None]
+    compute_metrics: Literal[None]
+    callbacks: Literal[None]
+    optimizers: tuple[None, None]
+    optimizer_cls_and_kwargs: Literal[None]
+    preprocess_logits_for_metrics: Literal[None]
+    quantization_config: Literal[None]
+    peft_config: Literal[None]
+    formatting_func: Literal[None]
 
 
 class MethodConfig(StrictConfig):
-    name: Literal["sft"]
+    name: str = Field(min_length=1)
     resume_from: Path | None
+    backend: SFTBackendConfig
+    trainer: SFTTrainerConfig
     learning_rate: float = Field(gt=0)
     epochs: float = Field(gt=0)
     max_steps: int = Field(ge=-1)

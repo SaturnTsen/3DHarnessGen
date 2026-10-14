@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from harness_training.types import DataReport, Rejection, TrajectoryRow
 
 
 @dataclass
@@ -11,7 +11,7 @@ class TrajectoryRecord:
     path: Path
     line: int
     instance: str
-    row: dict[str, Any]
+    row: TrajectoryRow
     images_by_conversation: tuple[tuple[Path, ...], ...]
 
 
@@ -34,10 +34,10 @@ class DatasetBundle:
     validation: list[TrainingExample] = field(default_factory=list)
     test: list[TrainingExample] = field(default_factory=list)
     assignments: dict[str, str] = field(default_factory=dict)
-    rejected: list[dict[str, Any]] = field(default_factory=list)
+    rejected: list[Rejection] = field(default_factory=list)
     source_hashes: dict[str, str] = field(default_factory=dict)
 
-    def report(self) -> dict[str, Any]:
+    def report(self) -> DataReport:
         return {"objects": len(self.assignments), "samples": {name: len(getattr(self, name))
                 for name in ("train", "validation", "test")}, "rejected": len(self.rejected),
                 "assignments": self.assignments}

@@ -10,7 +10,7 @@ import re
 import urllib.parse
 import zlib
 from pathlib import Path
-from typing import Any
+from harness_training.types import JsonValue
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 DATA_URI_RE = re.compile(
@@ -69,7 +69,7 @@ class ImageStore:
                 return ext
         return None
 
-    def _bytes_from_value(self, value: Any, mime: str | None = None) -> tuple[bytes, str | None] | None:
+    def _bytes_from_value(self, value: JsonValue | bytes, mime: str | None = None) -> tuple[bytes, str | None] | None:
         if isinstance(value, bytes):
             return value, mime
         if isinstance(value, dict):
@@ -129,7 +129,7 @@ class ImageStore:
                 return data, mime
         return None
 
-    def save(self, value: Any, mime: str | None = None) -> str | None:
+    def save(self, value: JsonValue | bytes, mime: str | None = None) -> str | None:
         found = self._bytes_from_value(value, mime)
         if not found:
             self.warnings.append("unreadable image payload")
@@ -169,8 +169,8 @@ def read_prompt(raw_root: Path, override: Path | None = None) -> tuple[str, str]
     raise ValueError(f"missing or empty task prompt under {raw_root}; supply --prompt-file")
 
 
-def make_row(messages: list[dict[str, Any]], prompt: str,
-             metadata: dict[str, Any]) -> dict[str, Any]:
+def make_row(messages: list[dict[str, JsonValue]], prompt: str,
+             metadata: dict[str, JsonValue]) -> dict[str, JsonValue]:
     """Use Qwen roles, structured content and one ordered image per placeholder.
 
     Paths in `images` are relative to the JSONL. Repeated image occurrences
@@ -217,7 +217,7 @@ def make_row(messages: list[dict[str, Any]], prompt: str,
             "images": image_paths, "metadata": metadata}
 
 
-def write_trajectory(output_dir: Path, row: dict[str, Any], stage: Path) -> None:
+def write_trajectory(output_dir: Path, row: dict[str, JsonValue], stage: Path) -> None:
     """Publish exactly one row after every referenced image is available."""
     output_dir.mkdir(parents=True, exist_ok=True)
     image_dir = output_dir / "images"

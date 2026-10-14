@@ -4,7 +4,11 @@ import hashlib
 import importlib.metadata
 import json
 from pathlib import Path
-from typing import Any
+from typing import cast
+
+from harness_training.types import (
+    AuditReport, DataReport, JsonObject, JsonValue, Manifest, ManifestPayload, Metrics, PreviewItem,
+)
 
 from harness_training.config import TrainingConfig, save_config
 from harness_training.data.base import BaseDataset, DatasetBundle
@@ -17,7 +21,7 @@ from harness_training.training.methods.base import BaseTrainingMethod
 from harness_training.training.methods.sft import SFTMethod
 
 
-def write_json(path: Path, value: Any) -> None:
+def write_json(path: Path, value: JsonValue | DataReport | Manifest | Metrics) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -31,9 +35,19 @@ class Trainer:
         self.config = config
         self.dataset: BaseDataset = TrajectoryDataset(
             config.data, config.experiment.scene, config.experiment.seed)
-        self.model: BaseModel = QwenModel(config.model, config.template)
+        self.model: BaseModel
+        match config.model.name:
+            case "qwen":
+                self.model = QwenModel(config.model, config.template)
+            case _:
+                raise ValueError(f"Unsupported model: {config.model.name}")
         self._template: BaseTemplate | None = None
-        self.method: BaseTrainingMethod = SFTMethod(config.method, config.experiment.seed)
+        self.method: BaseTrainingMethod
+        match config.method.name:
+            case "sft":
+                self.method = SFTMethod(config.method, config.experiment.seed)
+            case _:
+                raise ValueError(f"Unsupported training method: {config.method.name}")
 
     @property
     def template(self) -> BaseTemplate:
@@ -59,34 +73,34 @@ class Trainer:
                 setattr(data, split, accepted)
         return data
 
-    def audit(self) -> dict[str, Any]:
+    def audit(self) -> AuditReport:
         data = self.prepare()
         return {**data.report(), "rejections": data.rejected}
 
-    def preview(self, limit: int = 1, *, split: str = "train", encode: bool = True) -> list[dict[str, Any]]:
+    def preview(self, limit: int = 1, *, split: str = "train", encode: bool = True) -> list[PreviewItem]:
         data = self.prepare()
-        results = []
+        results: list[PreviewItem] = []
         for example in getattr(data, split)[:limit]:
             try:
                 rendered = self.template.render(example)
-                item = {"id": example.id, "source": str(example.record.path), "line": example.record.line,
+                item: PreviewItem = {"id": example.id, "source": str(example.record.path), "line": example.record.line,
                         "prompt": rendered.prompt, "target": rendered.text[len(rendered.prompt):],
                         "images": [str(p) for p in rendered.images]}
                 if encode:
                     encoded = self.template.encode(example)
                     item.update(tokens=encoded["input_ids"].shape[1],
-                                target_tokens=int((encoded["labels"] != -100).sum()))
+                                target_tokens=int((encoded["labels"] != self.config.template.label_ignore_index).sum()))
                 results.append(item)
             except (TemplateError, OSError, ValueError) as exc:
                 results.append({"id": example.id, "error": str(exc)})
         return results
 
-    def _manifest(self, data: DatasetBundle) -> dict[str, Any]:
-        identity = self.config.model_dump(mode="json")
-        identity["experiment"].pop("output_dir")
+    def _manifest(self, data: DatasetBundle) -> Manifest:
+        identity: JsonObject = self.config.model_dump(mode="json")
+        cast(JsonObject, identity["experiment"]).pop("output_dir")
         for key in ("max_steps", "epochs", "logging_steps", "save_steps", "eval_steps", "save_total_limit", "dataloader_workers"):
-            identity["method"].pop(key)
-        identity["method"].pop("resume_from")
+            cast(JsonObject, identity["method"]).pop(key)
+        cast(JsonObject, identity["method"]).pop("resume_from")
         sources = dict(data.source_hashes)
         images = {path for split in (data.train, data.validation, data.test) for example in split
                   for index in example.indices for path in example.record.images_by_conversation[index]}
@@ -101,12 +115,13 @@ class Trainer:
         code_root = Path(__file__).resolve().parents[1]
         code = {str(path.relative_to(code_root)): hashlib.sha256(path.read_bytes()).hexdigest()
                 for path in sorted(code_root.rglob("*.py"))}
-        payload = {"config": identity, "sources": sources, "versions": versions,
-                   "code": code,
-                   "targets": {split: [e.id for e in getattr(data, split)] for split in ("train", "validation", "test")}}
+        payload: ManifestPayload = {
+            "config": identity, "sources": sources, "versions": versions, "code": code,
+            "targets": {split: [e.id for e in getattr(data, split)] for split in ("train", "validation", "test")},
+        }
         return {**payload, "fingerprint": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()}
 
-    def run(self) -> dict[str, Any]:
+    def run(self) -> Metrics:
         resume_from = self.config.method.resume_from
         output = self.config.experiment.output_dir
         if resume_from is None and ((output / "final").exists() or list((output / "checkpoints").glob("checkpoint-*"))):

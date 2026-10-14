@@ -8,7 +8,9 @@ import tempfile
 import sys
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
+
+from harness_training.types import JsonValue
 
 if __package__:
     from .sft_common import DATA_URI_RE, ImageStore, make_row, read_prompt, write_trajectory
@@ -19,7 +21,7 @@ RUNS_ROOT = Path(__file__).resolve().parent.parent / "3DHarnessBench" / "runs"
 INTERNAL_CHANNELS = {"analysis", "reasoning", "thinking", "internal"}
 
 
-def json_records(path: Path) -> Iterable[Any]:
+def json_records(path: Path) -> Iterable[JsonValue]:
     """Read JSON, JSONL, or a JSON document with a trailing non-JSON error."""
     if not path.is_file():
         return
@@ -48,7 +50,7 @@ def json_records(path: Path) -> Iterable[Any]:
         return
 
 
-def _as_text(value: Any) -> str:
+def _as_text(value: JsonValue) -> str:
     if value is None:
         return ""
     if isinstance(value, str):
@@ -57,13 +59,13 @@ def _as_text(value: Any) -> str:
 
 
 
-def _channel_is_internal(value: Any) -> bool:
+def _channel_is_internal(value: JsonValue) -> bool:
     if isinstance(value, str):
         return value.lower() in INTERNAL_CHANNELS
     return False
 
 
-def _image_value(part: dict[str, Any]) -> tuple[Any, str | None]:
+def _image_value(part: dict[str, JsonValue]) -> tuple[JsonValue, str | None]:
     mime = part.get("mimeType") or part.get("mime_type") or part.get("media_type")
     for key in ("image_url", "imageUrl", "image", "source", "url", "data", "base64", "path", "blob"):
         if key in part:
@@ -75,10 +77,10 @@ def _image_value(part: dict[str, Any]) -> tuple[Any, str | None]:
     return None, mime
 
 
-def _content_blocks(content: Any, images: ImageStore) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = []
+def _content_blocks(content: JsonValue, images: ImageStore) -> list[dict[str, JsonValue]]:
+    blocks: list[dict[str, JsonValue]] = []
 
-    def visit(value: Any) -> None:
+    def visit(value: JsonValue) -> None:
         if value is None:
             return
         if isinstance(value, str):
@@ -143,7 +145,7 @@ def _content_blocks(content: Any, images: ImageStore) -> list[dict[str, Any]]:
     return [block for block in blocks if block.get("type") != "text" or block.get("text")]
 
 
-def _normalize_tool_call(call: Any, fallback_id: str) -> dict[str, Any] | None:
+def _normalize_tool_call(call: JsonValue, fallback_id: str) -> dict[str, JsonValue] | None:
     if not isinstance(call, dict):
         return None
     function = call.get("function") if isinstance(call.get("function"), dict) else call
@@ -167,8 +169,8 @@ def _normalize_tool_call(call: Any, fallback_id: str) -> dict[str, Any] | None:
     }
 
 
-def _append_message(messages: list[dict[str, Any]], role: str, content: Any,
-                    images: ImageStore, tool_calls: list[Any] | None = None,
+def _append_message(messages: list[dict[str, JsonValue]], role: str, content: JsonValue,
+                    images: ImageStore, tool_calls: list[JsonValue] | None = None,
                     call_id: str | None = None, name: str | None = None,
                     event_id: str | None = None) -> None:
     role = {"agent": "assistant", "model": "assistant", "human": "user"}.get(role, role)
@@ -176,9 +178,9 @@ def _append_message(messages: list[dict[str, Any]], role: str, content: Any,
         return
     if _channel_is_internal(event_id):
         return
-    blocks: list[dict[str, Any]] = []
-    calls: list[dict[str, Any]] = []
-    tool_results: list[tuple[str | None, str | None, Any]] = []
+    blocks: list[dict[str, JsonValue]] = []
+    calls: list[dict[str, JsonValue]] = []
+    tool_results: list[tuple[str | None, str | None, JsonValue]] = []
     for part in content if isinstance(content, list) else [content]:
         if isinstance(part, dict):
             kind = str(part.get("type", "")).lower()
@@ -202,7 +204,7 @@ def _append_message(messages: list[dict[str, Any]], role: str, content: Any,
             if normalized:
                 calls.append(normalized)
     if blocks or calls or role == "tool":
-        message: dict[str, Any] = {"role": role, "content": blocks}
+        message: dict[str, JsonValue] = {"role": role, "content": blocks}
         if calls:
             message["tool_calls"] = calls
         if role == "tool":
@@ -221,7 +223,7 @@ def _append_message(messages: list[dict[str, Any]], role: str, content: Any,
         })
 
 
-def _parse_standard_message(record: dict[str, Any], messages: list[dict[str, Any]], images: ImageStore) -> bool:
+def _parse_standard_message(record: dict[str, JsonValue], messages: list[dict[str, JsonValue]], images: ImageStore) -> bool:
     role = record.get("role")
     if not role:
         return False
@@ -241,7 +243,7 @@ def _parse_standard_message(record: dict[str, Any], messages: list[dict[str, Any
     return True
 
 
-def parse_codex_record(record: Any, messages: list[dict[str, Any]], images: ImageStore) -> None:
+def parse_codex_record(record: JsonValue, messages: list[dict[str, JsonValue]], images: ImageStore) -> None:
     if not isinstance(record, dict):
         return
     if record.get("type") == "response_item":
@@ -281,7 +283,7 @@ def parse_codex_record(record: Any, messages: list[dict[str, Any]], images: Imag
         return
 
 
-def parse_claude_record(record: Any, messages: list[dict[str, Any]], images: ImageStore) -> None:
+def parse_claude_record(record: JsonValue, messages: list[dict[str, JsonValue]], images: ImageStore) -> None:
     if not isinstance(record, dict):
         return
     kind = record.get("type")
@@ -309,7 +311,7 @@ def parse_claude_record(record: Any, messages: list[dict[str, Any]], images: Ima
     _parse_standard_message(record, messages, images)
 
 
-def parse_kimi_event(record: dict[str, Any], messages: list[dict[str, Any]], images: ImageStore) -> None:
+def parse_kimi_event(record: dict[str, JsonValue], messages: list[dict[str, JsonValue]], images: ImageStore) -> None:
     """Kimi wire archives put assistant turns and tool results in loop events."""
     event = record.get("event") or {}
     kind = event.get("type")
@@ -326,7 +328,7 @@ def parse_kimi_event(record: dict[str, Any], messages: list[dict[str, Any]], ima
                         call_id=event.get("toolCallId"))
 
 
-def parse_gemini_transcript(path: Path, raw_root: Path, messages: list[dict[str, Any]], images: ImageStore) -> None:
+def parse_gemini_transcript(path: Path, raw_root: Path, messages: list[dict[str, JsonValue]], images: ImageStore) -> None:
     records = list(json_records(path))
     call_path = next((p for p in (path.parent / "tool_calls.json", raw_root / "session" / "tool_calls.json") if p.is_file()), None)
     calls = list(json_records(call_path)) if call_path else []
@@ -359,7 +361,7 @@ def parse_gemini_transcript(path: Path, raw_root: Path, messages: list[dict[str,
                 _append_message(messages, "assistant", content, images)
 
 
-def parse_source(path: Path, messages: list[dict[str, Any]], images: ImageStore, warnings: list[str]) -> None:
+def parse_source(path: Path, messages: list[dict[str, JsonValue]], images: ImageStore, warnings: list[str]) -> None:
     if not path.is_file():
         warnings.append(f"missing source: {path}")
         return
@@ -384,7 +386,7 @@ def parse_source(path: Path, messages: list[dict[str, Any]], images: ImageStore,
             continue
 
 
-def _all_source_paths(raw_root: Path, attempts: list[dict[str, Any]]) -> list[Path]:
+def _all_source_paths(raw_root: Path, attempts: list[dict[str, JsonValue]]) -> list[Path]:
     paths: list[Path] = []
     for attempt in attempts:
         for segment in attempt.get("segments", []):
@@ -412,7 +414,7 @@ def _all_source_paths(raw_root: Path, attempts: list[dict[str, Any]]) -> list[Pa
     return unique
 
 
-def _choose_native_transcripts(raw_root: Path, attempts: list[dict[str, Any]], model: str) -> list[Path]:
+def _choose_native_transcripts(raw_root: Path, attempts: list[dict[str, JsonValue]], model: str) -> list[Path]:
     all_paths = _all_source_paths(raw_root, attempts)
     explicit_paths = []
     for attempt in attempts:
@@ -455,11 +457,11 @@ def _choose_native_transcripts(raw_root: Path, attempts: list[dict[str, Any]], m
     return []
 
 
-def _parse_gemini(path: Path, raw_root: Path, messages: list[dict[str, Any]], images: ImageStore) -> None:
+def _parse_gemini(path: Path, raw_root: Path, messages: list[dict[str, JsonValue]], images: ImageStore) -> None:
     parse_gemini_transcript(path, raw_root, messages, images)
 
 
-def _extend_snapshot(messages: list[dict[str, Any]], snapshot: list[dict[str, Any]]) -> None:
+def _extend_snapshot(messages: list[dict[str, JsonValue]], snapshot: list[dict[str, JsonValue]]) -> None:
     """Archives can contain the full resumed session again; append only its tail."""
     if not snapshot:
         return
@@ -476,15 +478,15 @@ def _extend_snapshot(messages: list[dict[str, Any]], snapshot: list[dict[str, An
     messages.extend(snapshot)
 
 
-def _load_chain_messages(raw_root: Path, attempts: list[dict[str, Any]], model: str,
-                         images: ImageStore) -> tuple[list[dict[str, Any]], list[str]]:
-    messages: list[dict[str, Any]] = []
+def _load_chain_messages(raw_root: Path, attempts: list[dict[str, JsonValue]], model: str,
+                         images: ImageStore) -> tuple[list[dict[str, JsonValue]], list[str]]:
+    messages: list[dict[str, JsonValue]] = []
     warnings: list[str] = []
     image_warning_start = len(images.warnings)
     native_paths = _choose_native_transcripts(raw_root, attempts, model)
     if native_paths:
         for path in native_paths:
-            snapshot: list[dict[str, Any]] = []
+            snapshot: list[dict[str, JsonValue]] = []
             if model == "gemini-3-1-pro":
                 _parse_gemini(path, raw_root, snapshot, images)
             else:
@@ -540,7 +542,7 @@ def export_instance(instance_dir: Path, model_dir: Path, setting: str, model: st
     if order.get("kind") == "iterative":
         raise ValueError("iterative run: use build_trajectory.py")
     prompt, prompt_source = read_prompt(raw_root, prompt_file)
-    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[str, list[dict[str, JsonValue]]] = defaultdict(list)
     for attempt in order.get("attempts", []):
         chain = str(attempt.get("chain_group") or f"chain-{attempt.get('reading_position', attempt.get('attempt', 1)):03d}")
         grouped[chain].append(attempt)
@@ -552,7 +554,7 @@ def export_instance(instance_dir: Path, model_dir: Path, setting: str, model: st
                                      dir=None if dry_run else output_dir) as tmp:
         stage = Path(tmp)
         images = ImageStore(raw_root, None if dry_run else stage)
-        messages: list[dict[str, Any]] = []
+        messages: list[dict[str, JsonValue]] = []
         chain_metadata = []
         all_warnings: list[str] = []
         for chain_name, attempts in chains:
@@ -589,7 +591,7 @@ def export_instance(instance_dir: Path, model_dir: Path, setting: str, model: st
                 return int(first.get("created_at", 0)) if isinstance(first, dict) else 0
             recovered_sources = []
             for path in sorted(candidates, key=lambda p: (created_at(p), str(p))):
-                snapshot: list[dict[str, Any]] = []
+                snapshot: list[dict[str, JsonValue]] = []
                 parse_source(path, snapshot, images, all_warnings)
                 if any(m["role"] == "assistant" for m in snapshot):
                     _extend_snapshot(messages, snapshot)

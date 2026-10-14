@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import cast
+
+from harness_training.types import (
+    ChatMessage, FunctionCall, ImageBlock, Processor, TensorInputs, TextBlock, ToolCall, ToolSchema,
+)
 
 from harness_training.config import TemplateConfig
 from harness_training.data.base import TrainingExample
@@ -11,34 +15,34 @@ from .base import BaseTemplate, RenderedExample, SampleTooLong, TemplateError
 
 
 class QwenTemplate(BaseTemplate):
-    def __init__(self, config: TemplateConfig, processor: Any, *, strip_plugin_recommendations: bool):
+    def __init__(self, config: TemplateConfig, processor: Processor, *, strip_plugin_recommendations: bool):
         self.config, self.processor = config, processor
         self.strip_plugin_recommendations = strip_plugin_recommendations
-        self.tools = None
+        self.tools: list[ToolSchema] | None = None
         if config.tools_path:
-            self.tools = json.loads(config.tools_path.read_text(encoding="utf-8"))
+            self.tools = cast(list[ToolSchema], json.loads(config.tools_path.read_text(encoding="utf-8")))
             if not isinstance(self.tools, list) or not all(isinstance(t, dict) and isinstance(t.get("function"), dict)
                                                         and t["function"].get("name") for t in self.tools):
                 raise TemplateError("tools_path must contain a list of function tool schemas")
 
     @staticmethod
-    def _tool_list(value: Any) -> list | None:
+    def _tool_list(value: list[ToolSchema] | str | None) -> list[ToolSchema] | None:
         if isinstance(value, str):
-            value = json.loads(value)
+            value = cast(list[ToolSchema], json.loads(value))
         if value is not None and not isinstance(value, list):
             raise TemplateError("tools must be a list or a JSON-encoded list")
         return value
 
-    def _messages(self, example: TrainingExample) -> tuple[list[dict], list[Path], list | None]:
+    def _messages(self, example: TrainingExample) -> tuple[list[ChatMessage], list[Path], list[ToolSchema] | None]:
         row = example.record.row
         tools = self._tool_list(row.get("tools"))
         if tools is not None and self.tools is not None and tools != self.tools:
             raise TemplateError("Recorded tools disagree with configured execution environment")
         tools = tools if tools is not None else self.tools
-        allowed_tools = {t.get("function", t).get("name") for t in tools or []}
+        allowed_tools = {t["function"]["name"] for t in tools or []}
         mapping = row["metadata"]["sharegpt_conversion"]["conversation_source_mapping"]
-        messages = [{"role": "system", "content": row.get("system", "")}]
-        images = []
+        messages: list[ChatMessage] = [{"role": "system", "content": row.get("system", "")}]
+        images: list[Path] = []
         pending: set[str] = set()
         returned: set[str] = set()
         for index in example.indices:
@@ -54,13 +58,13 @@ class QwenTemplate(BaseTemplate):
                 value = re.sub(r"<recommended_plugins>.*?</recommended_plugins>", "", value, flags=re.DOTALL)
             if role == "function_call":
                 try:
-                    calls = json.loads(value)
+                    calls = cast(FunctionCall | list[FunctionCall], json.loads(value))
                 except json.JSONDecodeError as exc:
                     raise TemplateError("function_call is not valid JSON") from exc
                 calls = calls if isinstance(calls, list) else [calls]
                 if len(calls) != len(call_ids):
                     raise TemplateError("Tool call IDs do not match recorded calls")
-                parsed = []
+                parsed: list[ToolCall] = []
                 for call, call_id in zip(calls, call_ids, strict=True):
                     if not isinstance(call, dict) or not isinstance(call.get("name"), str) or not isinstance(call.get("arguments"), dict):
                         raise TemplateError("Tool calls require a name and an arguments object")
@@ -82,7 +86,7 @@ class QwenTemplate(BaseTemplate):
                 if not ids or not set(ids) <= pending:
                     raise TemplateError("Tool observation cannot be matched to preceding calls")
                 returned.update(ids)
-            blocks = []
+            blocks: list[TextBlock | ImageBlock] = []
             bound = iter(example.record.images_by_conversation[index])
             pieces = value.split("<image>")
             for position, text in enumerate(pieces):
@@ -92,7 +96,7 @@ class QwenTemplate(BaseTemplate):
                     image = next(bound)
                     images.append(image)
                     blocks.append({"type": "image"})
-            message = {"role": {"human": "user", "gpt": "assistant", "observation": "tool"}[role], "content": blocks}
+            message: ChatMessage = {"role": {"human": "user", "gpt": "assistant", "observation": "tool"}[role], "content": blocks}
             if role == "observation":
                 message["tool_call_id"] = meta["observation_call_ids"][0]
             messages.append(message)
@@ -102,16 +106,17 @@ class QwenTemplate(BaseTemplate):
 
     def render(self, example: TrainingExample) -> RenderedExample:
         messages, images, tools = self._messages(example)
-        kwargs = {"tokenize": False, "enable_thinking": self.config.enable_thinking}
-        if tools:
-            kwargs["tools"] = tools
-        prompt = self.processor.apply_chat_template(messages[:-1], add_generation_prompt=True, **kwargs)
-        text = self.processor.apply_chat_template(messages, add_generation_prompt=False, **kwargs)
+        prompt = self.processor.apply_chat_template(
+            messages[:-1], tokenize=self.config.tokenize, enable_thinking=self.config.enable_thinking,
+            add_generation_prompt=self.config.prompt_add_generation_prompt, tools=tools)
+        text = self.processor.apply_chat_template(
+            messages, tokenize=self.config.tokenize, enable_thinking=self.config.enable_thinking,
+            add_generation_prompt=self.config.target_add_generation_prompt, tools=tools)
         if not text.startswith(prompt):
             raise TemplateError("Chat template changes the prompt when the target is appended")
         return RenderedExample(prompt, text, tuple(images))
 
-    def encode(self, example: TrainingExample) -> dict[str, Any]:
+    def encode(self, example: TrainingExample) -> TensorInputs:
         import torch
         from PIL import Image
 
@@ -119,14 +124,16 @@ class QwenTemplate(BaseTemplate):
         decoded = []
         for path in rendered.images:
             with Image.open(path) as image:
-                decoded.append(image.convert("RGB"))
-        kwargs = {"return_tensors": "pt", "add_special_tokens": False, "padding": False,
-                  "truncation": False}
-        if decoded:
-            kwargs["images"] = decoded
-        # Include tool screenshots explicitly instead of relying on a role-filtering helper.
-        full = dict(self.processor(text=[rendered.text], **kwargs))
-        prompt = self.processor(text=[rendered.prompt], **kwargs)
+                decoded.append(image.convert(self.config.image_mode))
+        # Pass every encoding setting explicitly, including tool screenshots.
+        full = dict(self.processor(
+            text=[rendered.text], images=decoded or None, return_tensors=self.config.return_tensors,
+            add_special_tokens=self.config.add_special_tokens, padding=self.config.padding,
+            truncation=self.config.truncation))
+        prompt = self.processor(
+            text=[rendered.prompt], images=decoded or None, return_tensors=self.config.return_tensors,
+            add_special_tokens=self.config.add_special_tokens, padding=self.config.padding,
+            truncation=self.config.truncation)
         ids, prompt_ids = full["input_ids"], prompt["input_ids"]
         if ids.shape[1] > self.config.max_length:
             raise SampleTooLong(f"{example.id}: {ids.shape[1]} tokens exceeds {self.config.max_length}")
@@ -134,7 +141,7 @@ class QwenTemplate(BaseTemplate):
         if boundary >= ids.shape[1] or not torch.equal(ids[:, :boundary], prompt_ids):
             raise TemplateError("Prompt token IDs are not an exact prefix; cannot safely assign training labels")
         labels = ids.clone()
-        labels[:, :boundary] = -100
-        labels[full["attention_mask"] == 0] = -100
+        labels[:, :boundary] = self.config.label_ignore_index
+        labels[full["attention_mask"] == self.config.attention_padding_value] = self.config.label_ignore_index
         full["labels"] = labels
         return full

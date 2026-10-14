@@ -3,8 +3,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from harness_training.types import TensorInputs
 
+from harness_training.config import TemplateConfig
 from harness_training.data.base import TrainingExample
 
 
@@ -24,10 +25,12 @@ class RenderedExample:
 
 
 class BaseTemplate(ABC):
+    config: TemplateConfig
+
     @abstractmethod
     def render(self, example: TrainingExample) -> RenderedExample:
         """Convert existing ShareGPT to the target model's chat format."""
 
     @abstractmethod
-    def encode(self, example: TrainingExample) -> dict[str, Any]:
+    def encode(self, example: TrainingExample) -> TensorInputs:
         """Create model inputs and labels for the selected reply only."""

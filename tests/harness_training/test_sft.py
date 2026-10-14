@@ -3,9 +3,50 @@ import hashlib
 
 import pytest
 
-from harness_training.config import LoRAConfig
 from harness_training.training.trainer import Trainer
+from harness_training.training.methods.sft import SFTMethod
 from conftest import write_trajectory
+
+
+def test_backend_arguments_use_explicit_config(config):
+    from dataclasses import fields
+    from inspect import signature
+    from trl import SFTConfig, SFTTrainer
+
+    config.method.use_cpu = True
+    backend = config.method.backend
+    backend.adam_beta1 = .8
+    backend.max_grad_norm = .7
+    backend.lr_scheduler_type = "cosine"
+    backend.per_device_eval_batch_size = 3
+    backend.gradient_checkpointing_kwargs.use_reentrant = True
+    backend.report_to = []
+    backend.data_seed = 17
+    backend.eval_strategy = "no"
+    backend.do_eval = False
+    backend.loss_type = "dft"
+    method = SFTMethod(config.method, config.experiment.seed)
+    args = method.build_arguments(config.experiment.output_dir, config.method.resume_from)
+    assert args.adam_beta1 == .8
+    assert args.max_grad_norm == .7
+    assert args.lr_scheduler_type == "cosine"
+    assert args.per_device_eval_batch_size == 3
+    assert args.gradient_checkpointing_kwargs == {"use_reentrant": True}
+    assert args.report_to == []
+    assert args.data_seed == 17
+    assert args.eval_strategy == "no"
+    assert args.loss_type == "dft"
+    configured = set(type(backend).model_fields) | {
+        "output_dir", "learning_rate", "num_train_epochs", "max_steps", "per_device_train_batch_size",
+        "gradient_accumulation_steps", "gradient_checkpointing", "warmup_steps", "weight_decay",
+        "logging_steps", "save_steps", "save_total_limit", "eval_steps", "use_cpu", "dataloader_num_workers",
+        "seed", "resume_from_checkpoint",
+    }
+    assert configured == {field.name for field in fields(SFTConfig) if field.init}
+    trainer_fields = set(type(config.method.trainer).model_fields) | {
+        "model", "args", "data_collator", "train_dataset", "eval_dataset", "processing_class",
+    }
+    assert trainer_fields == set(signature(SFTTrainer).parameters)
 
 
 def test_small_qwen_sft_save_and_resume(config, processor, tmp_path):
@@ -40,7 +81,9 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path):
         training_name = next(f"Train{i}Factory" for i in range(1000)
                              if int(hashlib.sha256(f"42:Train{i}Factory".encode()).hexdigest()[:16], 16) / 2**64 >= .1)
         write_trajectory(config.data.runs_root, instance=training_name)
-        config.model.lora = LoRAConfig(rank=2, alpha=4, dropout=0, target_modules=["q_proj", "v_proj"])
+        config.model.lora = config.model.lora.model_copy(update={
+            "rank": 2, "alpha": 4, "dropout": 0, "target_modules": ["q_proj", "v_proj"],
+        })
         config.method = config.method.model_copy(update={
             "max_steps": 1, "batch_size": 1, "gradient_accumulation_steps": 1,
             "learning_rate": .01, "gradient_checkpointing": False, "logging_steps": 1,

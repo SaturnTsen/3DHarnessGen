@@ -7,6 +7,8 @@ from pydantic import ValidationError
 from harness_training.config import DataConfig, TrainingConfig, load_config, save_config
 from harness_training.data.trajectory import TrajectoryDataset
 from harness_training.data.validation import DataError
+from harness_training.models.qwen import QwenModel
+from harness_training.training.methods.sft import SFTMethod
 from harness_training.training.trainer import Trainer
 from conftest import write_trajectory
 
@@ -21,7 +23,13 @@ def test_config_roundtrip_paths_and_unknown_keys(config, tmp_path):
         load_config(path)
 
 
-@pytest.mark.parametrize("section", [(), ("experiment",), ("data",), ("template",), ("model",), ("method",), ("model", "lora")])
+@pytest.mark.parametrize("section", [
+    (), ("experiment",), ("data",), ("template",), ("model",), ("method",),
+    ("model", "lora"), ("model", "adapter"), ("model", "lora", "backend"),
+    ("model", "lora", "backend", "runtime_config"), ("method", "backend"),
+    ("method", "trainer"),
+    ("method", "backend", "gradient_checkpointing_kwargs"), ("method", "backend", "dataset_kwargs"),
+])
 def test_config_requires_explicit_fields(config, section):
     fields = config.model_dump(mode="json")
     for name in section:
@@ -41,6 +49,8 @@ def test_config_requires_explicit_fields(config, section):
 def test_trainer_audit_uses_config_without_loading_processor(config, tmp_path):
     config.model.path = tmp_path / "unavailable_model"
     trainer = Trainer(config)
+    assert isinstance(trainer.model, QwenModel)
+    assert isinstance(trainer.method, SFTMethod)
     report = trainer.audit()
     assert report["samples"]["train"] == 2
     assert trainer.dataset.config is config.data
@@ -50,6 +60,34 @@ def test_trainer_audit_uses_config_without_loading_processor(config, tmp_path):
     assert trainer._template is None
     assert trainer.model._processor is None
     assert trainer.model.model is None
+
+
+@pytest.mark.parametrize("section, message", [("model", "Unsupported model"), ("method", "Unsupported training method")])
+def test_trainer_rejects_unimplemented_component_names(config, section, message):
+    payload = config.model_dump(mode="json")
+    payload[section]["name"] = "unimplemented"
+    selected = TrainingConfig.model_validate(payload)
+    with pytest.raises(ValueError, match=f"{message}: unimplemented"):
+        Trainer(selected)
+
+
+@pytest.mark.parametrize("section", ["model", "method"])
+def test_component_names_cannot_be_empty(config, section):
+    payload = config.model_dump(mode="json")
+    payload[section]["name"] = ""
+    with pytest.raises(ValidationError):
+        TrainingConfig.model_validate(payload)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("remove_unused_columns", True), ("packing", True), ("padding_free", True),
+    ("assistant_only_loss", True), ("completion_only_loss", True), ("max_length", 1024),
+])
+def test_backend_rejects_settings_incompatible_with_indexed_samples(config, field, value):
+    payload = config.model_dump(mode="json")
+    payload["method"]["backend"][field] = value
+    with pytest.raises(ValidationError):
+        TrainingConfig.model_validate(payload)
 
 
 def test_resume_path_resolves_from_yaml(config, tmp_path):

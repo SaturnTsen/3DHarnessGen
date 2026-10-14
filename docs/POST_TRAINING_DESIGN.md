@@ -161,7 +161,7 @@ outputs/post_training/
 
 训练参数是起始值，正式训练前需要根据显存和样本长度调整。交互场景配置里的工具定义描述原日志使用的执行环境，并不实现该环境。部署时需要保持一致。
 
-Pydantic 拒绝未知字段和不合理组合，例如 Single-view 配成另一个场景的数据。`~` 在读取时展开；相对配置路径以配置文件所在目录为起点解析，示例路径在实际文件中相应调整。所有模型、数据、模板和训练参数必须显式配置，不补默认值；`Trainer` 只接收配置并直接构造具体组件。恢复路径由 `method.resume_from` 指定，新训练填写 `null`。保存解析路径后的配置，作为本次训练的记录。
+Pydantic 拒绝未知字段和不合理组合，例如 Single-view 配成另一个场景的数据。`~` 在读取时展开；相对配置路径以配置文件所在目录为起点解析，示例路径在实际文件中相应调整。所有模型、数据、模板和训练参数必须显式配置，不补默认值；`Trainer` 只接收配置，根据 `model.name` 和 `method.name` 的显式分支直接构造具体组件。目前实现 `qwen` 和 `sft`，未知名称报错；后续实现接入对应分支，不使用工厂或注册机制。恢复路径由 `method.resume_from` 指定，新训练填写 `null`。保存解析路径后的配置，作为本次训练的记录。
 
 ## 7. SFT、长度和输出
 
@@ -213,3 +213,12 @@ SFT 第一版提供验证集 loss。任务评估以后接入 benchmark，检查�
 - [Transformers 多模态消息与 Processor](https://huggingface.co/docs/transformers/chat_templating_multimodal)
 - [TRL SFT 训练接口](https://huggingface.co/docs/trl/en/sft_trainer)
 - [Pydantic YAML 读写接口](https://pydantic-yaml.readthedocs.io/en/stable/index.html)
+
+
+## 显式参数与类型契约
+
+模型、模板、训练参数均没有代码默认值。`method.backend` 必填并完整覆盖当前 `SFTConfig` 的初始化字段；输出路径、种子及原有顶层训练参数从对应配置推导，其余字段直接转交。训练器的可选入口由 `method.trainer` 显式配置；当前尚未接入的回调、量化与自定义函数入口必须填写 `null`。模型的 LoRA 后端和适配器包装参数也显式配置。依赖升级增加字段时检查会报错，不回退到新的默认值。
+
+模板编码、标签忽略值、补齐值由配置提供。样本索引流程要求关闭后端的数据预处理、列删除、拼接、二次截断与标签重建；这些限制用必填的 Literal 字段校验。验证策略与训练／验证精度不再根据数据或设备自动选择。
+
+`harness_training/types.py` 定义原始 JSON 值、轨迹与工具消息、报告结构和 Processor 接口。编码与批次结果为张量字典，模型返回预训练模型或 PEFT 模型，训练指标为数值字典。原始供应商日志使用递归 JSON 类型；图片提取入口另外声明 bytes。项目代码不使用 Any。

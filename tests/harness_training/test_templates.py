@@ -26,7 +26,10 @@ def test_target_only_labels_and_padding(config, processor):
     target = processor.tokenizer.decode(target_ids)
     assert "print('first')" in target and "Write a Blender script" not in target
     assert processor.tokenizer.eos_token_id in target_ids
-    batch = SFTCollator(template, processor.tokenizer.pad_token_id)([{"example": e} for e in data.train])
+    batch = SFTCollator(template, processor.tokenizer.pad_token_id, data.train,
+                        label_ignore_index=config.template.label_ignore_index,
+                        attention_padding_value=config.template.attention_padding_value,
+                        token_type_padding_value=config.template.token_type_padding_value)([{"example": e} for e in data.train])
     assert batch["input_ids"].shape[0] == 2
     assert batch["image_grid_thw"].shape[0] == 2
     assert torch.all(batch["labels"][batch["attention_mask"] == 0] == -100)

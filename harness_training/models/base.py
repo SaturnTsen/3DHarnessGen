@@ -1,6 +1,13 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+from harness_training.types import Processor
+
+if TYPE_CHECKING:
+    from peft import PeftModel
+    from transformers import PreTrainedModel
 from harness_training.config import ModelConfig
 
 
@@ -9,11 +16,11 @@ class BaseModel(ABC):
 
     @property
     @abstractmethod
-    def processor(self) -> Any:
+    def processor(self) -> Processor:
         """The processor owned by this model implementation."""
 
     @abstractmethod
-    def load(self) -> Any:
+    def load(self) -> PreTrainedModel | PeftModel:
         """Load model weights and apply trainable-parameter settings."""
 
     @abstractmethod
