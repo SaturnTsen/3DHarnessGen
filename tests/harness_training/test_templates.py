@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 import torch
 
-from harness_training.config import DataConfig, TemplateConfig
 from harness_training.data.trajectory import TrajectoryDataset
 from harness_training.templates.base import SampleTooLong, TemplateError
 from harness_training.templates.qwen import QwenTemplate
@@ -15,8 +14,9 @@ TOOLS = Path(__file__).resolve().parents[2] / "configs/tools/agent_runtime.json"
 
 
 def test_target_only_labels_and_padding(config, processor):
-    data = TrajectoryDataset(config.data, config.experiment.scene).prepare()
-    template = QwenTemplate(config.template, processor)
+    data = TrajectoryDataset(config.data, config.experiment.scene, config.experiment.seed).prepare()
+    template = QwenTemplate(config.template, processor,
+                            strip_plugin_recommendations=config.data.strip_plugin_recommendations)
     first = template.encode(data.train[0])
     second = template.encode(data.train[1])
     rendered = template.render(data.train[0])
@@ -34,10 +34,11 @@ def test_target_only_labels_and_padding(config, processor):
 
 
 def test_no_silent_truncation(config, processor):
-    example = TrajectoryDataset(config.data, "Single-view").prepare().train[0]
+    example = TrajectoryDataset(config.data, "Single-view", config.experiment.seed).prepare().train[0]
     cfg = config.template.model_copy(update={"max_length": 16})
     with pytest.raises(SampleTooLong):
-        QwenTemplate(cfg, processor).encode(example)
+        QwenTemplate(cfg, processor,
+                     strip_plugin_recommendations=config.data.strip_plugin_recommendations).encode(example)
 
 
 def interactive_record(tmp_path, *, two_chains=False):
@@ -75,11 +76,13 @@ def interactive_record(tmp_path, *, two_chains=False):
     return path
 
 
-def test_tool_screenshot_and_native_mixed_reply(tmp_path, processor):
+def test_tool_screenshot_and_native_mixed_reply(tmp_path, processor, config):
     interactive_record(tmp_path)
-    data = TrajectoryDataset(DataConfig(runs_root=tmp_path, validation_fraction=0, test_fraction=0), "ActiveVisual").prepare()
+    cfg = config.data.model_copy(update={"runs_root": tmp_path})
+    data = TrajectoryDataset(cfg, "ActiveVisual", config.experiment.seed).prepare()
     assert [e.target_index for e in data.train] == [1, 3, 5]
-    template = QwenTemplate(TemplateConfig(tools_path=TOOLS, min_image_pixels=1024, max_image_pixels=1024), processor)
+    template = QwenTemplate(config.template.model_copy(update={"tools_path": TOOLS}), processor,
+                            strip_plugin_recommendations=config.data.strip_plugin_recommendations)
     first = template.render(data.train[0])
     assert "Ignore this list" not in first.prompt
     assert len(first.images) == 0
@@ -90,19 +93,21 @@ def test_tool_screenshot_and_native_mixed_reply(tmp_path, processor):
     assert "text('inspect');" not in target
 
 
-def test_chain_history_does_not_leak(tmp_path):
+def test_chain_history_does_not_leak(tmp_path, config):
     interactive_record(tmp_path, two_chains=True)
-    data = TrajectoryDataset(DataConfig(runs_root=tmp_path, validation_fraction=0, test_fraction=0), "ActiveVisual").prepare()
+    cfg = config.data.model_copy(update={"runs_root": tmp_path})
+    data = TrajectoryDataset(cfg, "ActiveVisual", config.experiment.seed).prepare()
     assert data.train[-1].indices == (6, 7)
 
 
-def test_unknown_tool_and_unmatched_observation_fail(tmp_path, processor):
+def test_unknown_tool_and_unmatched_observation_fail(tmp_path, processor, config):
     path = interactive_record(tmp_path)
-    cfg = DataConfig(runs_root=tmp_path, validation_fraction=0, test_fraction=0)
-    template = QwenTemplate(TemplateConfig(tools_path=TOOLS), processor)
+    cfg = config.data.model_copy(update={"runs_root": tmp_path})
+    template = QwenTemplate(config.template.model_copy(update={"tools_path": TOOLS}), processor,
+                            strip_plugin_recommendations=config.data.strip_plugin_recommendations)
     row = json.loads(path.read_text())
     row["metadata"]["sharegpt_conversion"]["conversation_source_mapping"][2]["observation_call_ids"] = ["wrong"]
     path.write_text(json.dumps(row))
-    data = TrajectoryDataset(cfg, "ActiveVisual").prepare()
+    data = TrajectoryDataset(cfg, "ActiveVisual", config.experiment.seed).prepare()
     with pytest.raises(TemplateError, match="matched"):
         template.render(data.train[1])

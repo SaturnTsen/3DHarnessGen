@@ -1,11 +1,13 @@
 import json
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from harness_training.config import DataConfig, load_config, save_config
+from harness_training.config import DataConfig, TrainingConfig, load_config, save_config
 from harness_training.data.trajectory import TrajectoryDataset
 from harness_training.data.validation import DataError
+from harness_training.training.trainer import Trainer
 from conftest import write_trajectory
 
 
@@ -19,37 +21,76 @@ def test_config_roundtrip_paths_and_unknown_keys(config, tmp_path):
         load_config(path)
 
 
-def test_split_rejects_invalid_ratios():
-    with pytest.raises(ValidationError):
-        DataConfig(runs_root=".", validation_fraction=.6, test_fraction=.4)
+@pytest.mark.parametrize("section", [(), ("experiment",), ("data",), ("template",), ("model",), ("method",), ("model", "lora")])
+def test_config_requires_explicit_fields(config, section):
+    fields = config.model_dump(mode="json")
+    for name in section:
+        fields = fields[name]
+    for field in fields:
+        incomplete = config.model_dump(mode="json")
+        target = incomplete
+        for name in section:
+            target = target[name]
+        del target[field]
+        with pytest.raises(ValidationError) as caught:
+            TrainingConfig.model_validate(incomplete)
+        assert any(error["loc"] == section + (field,) and error["type"] == "missing"
+                   for error in caught.value.errors())
 
 
-def test_step_selection_uses_source_mapping(tmp_path):
+def test_trainer_audit_uses_config_without_loading_processor(config, tmp_path):
+    config.model.path = tmp_path / "unavailable_model"
+    trainer = Trainer(config)
+    report = trainer.audit()
+    assert report["samples"]["train"] == 2
+    assert trainer.dataset.config is config.data
+    assert trainer.model.config is config.model
+    assert trainer.method.config is config.method
+    assert trainer.dataset.seed == trainer.method.seed == config.experiment.seed
+    assert trainer._template is None
+    assert trainer.model._processor is None
+    assert trainer.model.model is None
+
+
+def test_resume_path_resolves_from_yaml(config, tmp_path):
+    config.method.resume_from = Path("checkpoints/checkpoint-1")
+    path = tmp_path / "config.yaml"
+    save_config(config, path)
+    assert load_config(path).method.resume_from == tmp_path / "checkpoints/checkpoint-1"
+
+
+def test_split_rejects_invalid_ratios(config):
+    with pytest.raises(ValidationError, match="must be less than 1"):
+        DataConfig.model_validate({**config.data.model_dump(), "validation_fraction": .6, "test_fraction": .4})
+
+
+def test_step_selection_uses_source_mapping(tmp_path, config):
     write_trajectory(tmp_path, failed_first=True)
-    data = TrajectoryDataset(DataConfig(runs_root=tmp_path, validation_fraction=0, test_fraction=0), "Single-view").prepare()
+    cfg = config.data.model_copy(update={"runs_root": tmp_path})
+    data = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
     assert [example.target_index for example in data.train] == [3]
     assert data.train[0].indices == (2, 3)
     assert data.train[0].record.images_by_conversation[2][0].name == "reference.png"
 
 
-def test_missing_image_only_excludes_affected_step(tmp_path):
+def test_missing_image_only_excludes_affected_step(tmp_path, config):
     write_trajectory(tmp_path, missing=True)
-    cfg = DataConfig(runs_root=tmp_path, validation_fraction=0, test_fraction=0)
-    data = TrajectoryDataset(cfg, "Single-view").prepare()
+    cfg = config.data.model_copy(update={"runs_root": tmp_path})
+    data = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
     assert [example.target_index for example in data.train] == [3]
     assert len(data.rejected) == 1 and "absent.png" in data.rejected[0]["reason"]
     cfg.missing_images = "error"
     with pytest.raises(DataError, match="absent.png"):
-        TrajectoryDataset(cfg, "Single-view").prepare()
+        TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
 
 
-def test_split_stays_same_across_scenes(tmp_path):
+def test_split_stays_same_across_scenes(tmp_path, config):
     for scene in ["Single-view", "Multi-view"]:
         for i in range(20):
             write_trajectory(tmp_path, scene, f"Object{i}Factory")
-    cfg = DataConfig(runs_root=tmp_path)
-    a = TrajectoryDataset(cfg, "Single-view").prepare()
-    b = TrajectoryDataset(cfg, "Multi-view").prepare()
+    cfg = config.data.model_copy(update={"runs_root": tmp_path, "validation_fraction": .1, "test_fraction": .1})
+    a = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
+    b = TrajectoryDataset(cfg, "Multi-view", config.experiment.seed).prepare()
     assert a.assignments == b.assignments
     for split in [a.train, a.validation, a.test]:
         for example in split:
@@ -57,10 +98,11 @@ def test_split_stays_same_across_scenes(tmp_path):
                                                                  if split is getattr(a, name))
 
 
-def test_bad_image_alignment_is_rejected(tmp_path):
+def test_bad_image_alignment_is_rejected(tmp_path, config):
     path = write_trajectory(tmp_path)
     row = json.loads(path.read_text())
     row["images"].pop()
     path.write_text(json.dumps(row) + "\n")
-    data = TrajectoryDataset(DataConfig(runs_root=tmp_path), "Single-view").prepare()
+    cfg = config.data.model_copy(update={"runs_root": tmp_path})
+    data = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
     assert not data.train and "placeholders" in data.rejected[0]["reason"]

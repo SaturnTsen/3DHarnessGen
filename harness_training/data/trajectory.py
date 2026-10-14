@@ -10,7 +10,7 @@ from .validation import DataError, validate_image
 
 
 class TrajectoryDataset(BaseDataset):
-    def __init__(self, config: DataConfig, scene: Scene, seed: int = 42):
+    def __init__(self, config: DataConfig, scene: Scene, seed: int):
         self.config, self.scene, self.seed = config, scene, seed
         self._image_errors: dict[Path, str | None] = {}
 

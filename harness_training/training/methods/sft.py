@@ -12,11 +12,11 @@ from .base import BaseTrainingMethod
 
 
 class SFTMethod(BaseTrainingMethod):
-    def __init__(self, config: MethodConfig, seed: int = 42):
+    def __init__(self, config: MethodConfig, seed: int):
         self.config, self.seed = config, seed
 
     def run(self, model: BaseModel, template: BaseTemplate, data: DatasetBundle,
-            output_dir: Path, resume_from: Path | None = None) -> dict[str, Any]:
+            output_dir: Path, resume_from: Path | None) -> dict[str, Any]:
         from datasets import Dataset
         from trl import SFTConfig, SFTTrainer
         from transformers import set_seed

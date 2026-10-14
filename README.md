@@ -6,6 +6,8 @@
 3DHarnessBench/runs/<setting>/gpt-6-astra/<instance>/post_train_trajectory/trajectory.jsonl
 ```
 
+模型、数据、模板和训练参数必须在 YAML 中显式填写；缺少字段会报错，代码不补默认值。`Trainer` 只接收完整配置并直接构造组件。
+
 代码位于项目根目录的 `harness_training/`。第一版实现 SFT。`Trainer` 是统一入口；data、templates、models 和 training methods 通过各自的 base 定义接口，使用具体类直接初始化。模型类持有模型和 Processor，template 将已有 ShareGPT 转为 Qwen 输入。数据不重新导出。
 
 设计说明见 [docs/POST_TRAINING_DESIGN.md](docs/POST_TRAINING_DESIGN.md)。
@@ -53,10 +55,12 @@ pixi run post-train train --config configs/sft_single_view.yaml
 
 训练会先用 Processor 检查所有选中的样本。过长或无法可靠转换的样本记录后跳过，不自动截断。检查通过后才加载模型权重。每条样本只学习当前选定的 assistant 回复，system、用户请求、历史回复、工具返回、图片与补齐位置均不计算训练误差。
 
-每个配置有独立输出目录。已有训练结果时，代码拒绝直接覆盖；可以修改 `experiment.output_dir` 开始另一轮，或明确恢复 checkpoint：
+每个配置有独立输出目录。已有训练结果时，代码拒绝直接覆盖；可以修改 `experiment.output_dir` 开始另一轮，或在 YAML 的 `method.resume_from` 中指定恢复 checkpoint（新训练显式填写 `null`）：
 
-```bash
-pixi run post-train train --config configs/sft_single_view.yaml --resume-from outputs/post_training/Single-view/sft_v1/checkpoints/checkpoint-100
+```yaml
+method:
+  # 其余 method 参数仍须保留；路径相对于 YAML 所在目录。
+  resume_from: ../outputs/post_training/Single-view/sft_v1/checkpoints/checkpoint-100
 ```
 
 恢复时检查数据、图片、模板、模型配置及关键训练参数是否变化。允许调整训练总步数和日志／保存频率。

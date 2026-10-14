@@ -11,7 +11,7 @@ from .base import BaseTemplate, RenderedExample, SampleTooLong, TemplateError
 
 
 class QwenTemplate(BaseTemplate):
-    def __init__(self, config: TemplateConfig, processor: Any, *, strip_plugin_recommendations: bool = True):
+    def __init__(self, config: TemplateConfig, processor: Any, *, strip_plugin_recommendations: bool):
         self.config, self.processor = config, processor
         self.strip_plugin_recommendations = strip_plugin_recommendations
         self.tools = None

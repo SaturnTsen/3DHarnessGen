@@ -3,8 +3,7 @@ import hashlib
 
 import pytest
 
-from harness_training.config import LoRAConfig, MethodConfig
-from harness_training.models.qwen import QwenModel
+from harness_training.config import LoRAConfig
 from harness_training.training.trainer import Trainer
 from conftest import write_trajectory
 
@@ -42,11 +41,13 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path):
                              if int(hashlib.sha256(f"42:Train{i}Factory".encode()).hexdigest()[:16], 16) / 2**64 >= .1)
         write_trajectory(config.data.runs_root, instance=training_name)
         config.model.lora = LoRAConfig(rank=2, alpha=4, dropout=0, target_modules=["q_proj", "v_proj"])
-        config.method = MethodConfig(max_steps=1, batch_size=1, gradient_accumulation_steps=1,
-                                     learning_rate=.01, gradient_checkpointing=False, logging_steps=1,
-                                     save_steps=1, warmup_ratio=0, use_cpu=True)
-        model = QwenModel(config.model, config.template)
-        trainer = Trainer(config, model=model)
+        config.method = config.method.model_copy(update={
+            "max_steps": 1, "batch_size": 1, "gradient_accumulation_steps": 1,
+            "learning_rate": .01, "gradient_checkpointing": False, "logging_steps": 1,
+            "save_steps": 1, "warmup_ratio": 0, "use_cpu": True,
+        })
+        trainer = Trainer(config)
+        model = trainer.model
         metrics = trainer.run()
         assert metrics["train_loss"] > 0
         assert metrics["eval_loss"] > 0
@@ -58,7 +59,8 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path):
         checkpoint = config.experiment.output_dir / "checkpoints/checkpoint-1"
         assert (checkpoint / "trainer_state.json").is_file()
         config.method.max_steps = 2
-        Trainer(config).run(checkpoint)
+        config.method.resume_from = checkpoint
+        Trainer(config).run()
         state = json.loads((config.experiment.output_dir / "checkpoints/checkpoint-2/trainer_state.json").read_text())
         assert state["global_step"] == 2
         # Same checkpoint must not silently resume on changed training data.
@@ -67,6 +69,6 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path):
         row["conversations"][1]["value"] += "\n# changed"
         source.write_text(json.dumps(row))
         with pytest.raises(ValueError, match="changed"):
-            Trainer(config).run(checkpoint)
+            Trainer(config).run()
     finally:
         torch.set_num_threads(threads)

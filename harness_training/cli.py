@@ -15,7 +15,6 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=1, help="Number of preview samples")
     parser.add_argument("--split", choices=["train", "validation", "test"], default="train")
     parser.add_argument("--render-only", action="store_true", help="Preview without pixel/token encoding")
-    parser.add_argument("--resume-from", type=Path)
     args = parser.parse_args()
     if args.limit <= 0:
         parser.error("--limit must be positive")
@@ -30,7 +29,7 @@ def main() -> None:
         elif args.command == "preview":
             result = trainer.preview(args.limit, split=args.split, encode=not args.render_only)
         else:
-            result = trainer.run(args.resume_from)
+            result = trainer.run()
     except (ValueError, OSError) as exc:
         parser.exit(1, f"Error: {exc}\n")
     print(json.dumps(result, ensure_ascii=False, indent=2))

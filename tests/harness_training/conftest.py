@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from harness_training.config import DataConfig, ExperimentConfig, ModelConfig, TemplateConfig, TrainingConfig
+from harness_training.config import load_config
 
 
 MODEL_PATH = Path.home() / "models/Qwen3.8-27B"
@@ -49,9 +49,14 @@ def processor():
 @pytest.fixture
 def config(tmp_path):
     write_trajectory(tmp_path / "runs")
-    return TrainingConfig(
-        experiment=ExperimentConfig(name="test", scene="Single-view", output_dir=tmp_path / "output"),
-        data=DataConfig(runs_root=tmp_path / "runs", validation_fraction=0, test_fraction=0),
-        model=ModelConfig(path=MODEL_PATH, dtype="float32"),
-        template=TemplateConfig(min_image_pixels=1024, max_image_pixels=1024, max_length=4096),
-    )
+    config = load_config(Path(__file__).resolve().parents[2] / "configs/sft_single_view.yaml")
+    config.experiment.name = "test"
+    config.experiment.output_dir = tmp_path / "output"
+    config.data.runs_root = tmp_path / "runs"
+    config.data.validation_fraction = 0
+    config.data.test_fraction = 0
+    config.model.dtype = "float32"
+    config.template.min_image_pixels = 1024
+    config.template.max_image_pixels = 1024
+    config.template.max_length = 4096
+    return config

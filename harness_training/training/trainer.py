@@ -27,15 +27,13 @@ def write_json(path: Path, value: Any) -> None:
 class Trainer:
     """Unified entrypoint. Concrete components are initialized directly."""
 
-    def __init__(self, config: TrainingConfig, *, dataset: BaseDataset | None = None,
-                 model: BaseModel | None = None, template: BaseTemplate | None = None,
-                 method: BaseTrainingMethod | None = None):
+    def __init__(self, config: TrainingConfig):
         self.config = config
-        self.dataset = dataset if dataset is not None else TrajectoryDataset(
+        self.dataset: BaseDataset = TrajectoryDataset(
             config.data, config.experiment.scene, config.experiment.seed)
-        self.model = model if model is not None else QwenModel(config.model, config.template)
-        self._template = template
-        self.method = method if method is not None else SFTMethod(config.method, config.experiment.seed)
+        self.model: BaseModel = QwenModel(config.model, config.template)
+        self._template: BaseTemplate | None = None
+        self.method: BaseTrainingMethod = SFTMethod(config.method, config.experiment.seed)
 
     @property
     def template(self) -> BaseTemplate:
@@ -88,6 +86,7 @@ class Trainer:
         identity["experiment"].pop("output_dir")
         for key in ("max_steps", "epochs", "logging_steps", "save_steps", "eval_steps", "save_total_limit", "dataloader_workers"):
             identity["method"].pop(key)
+        identity["method"].pop("resume_from")
         sources = dict(data.source_hashes)
         images = {path for split in (data.train, data.validation, data.test) for example in split
                   for index in example.indices for path in example.record.images_by_conversation[index]}
@@ -107,7 +106,8 @@ class Trainer:
                    "targets": {split: [e.id for e in getattr(data, split)] for split in ("train", "validation", "test")}}
         return {**payload, "fingerprint": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()}
 
-    def run(self, resume_from: Path | None = None) -> dict[str, Any]:
+    def run(self) -> dict[str, Any]:
+        resume_from = self.config.method.resume_from
         output = self.config.experiment.output_dir
         if resume_from is None and ((output / "final").exists() or list((output / "checkpoints").glob("checkpoint-*"))):
             raise ValueError("Output already contains a training run; choose another output_dir or resume explicitly")
