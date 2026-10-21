@@ -7,6 +7,10 @@ version = "0.1.0"
 [tasks]
 post-train = "python -m harness_training.cli"
 test-post-training = "python -m pytest tests/harness_training"
+type-check = "python -m pyright --pythonpath .pixi/envs/default/bin/python"
+debug-audit = "debugpy --listen localhost:12888 --wait-for-client -m harness_training.cli audit"
+debug-prepare = "debugpy --listen localhost:12888 --wait-for-client -m harness_training.cli prepare"
+debug-preview = "debugpy --listen localhost:12888 --wait-for-client -m harness_training.cli preview"
 
 [dependencies]
 python = "3.12.*"
@@ -29,9 +33,11 @@ numpy = "==2.5.3"
 [feature.dev.pypi-dependencies]
 debugpy = "*"
 pytest = "==9.1.1"
+pyright = ">=1.1.414, <2"
 
 [feature.dev.dependencies]
 ipykernel = ">=7.4.0,<8"
+nodejs = ">=26.10.0,<26.11"
 
 [environments]
 default = ["dev"]

@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 from harness_training.types import DataReport, Rejection, TrajectoryRow
 
 
@@ -30,17 +31,29 @@ class TrainingExample:
 
 @dataclass
 class DatasetBundle:
-    train: list[TrainingExample] = field(default_factory=list)
-    validation: list[TrainingExample] = field(default_factory=list)
-    test: list[TrainingExample] = field(default_factory=list)
-    assignments: dict[str, str] = field(default_factory=dict)
-    rejected: list[Rejection] = field(default_factory=list)
-    source_hashes: dict[str, str] = field(default_factory=dict)
+    train: list[TrainingExample] = field(default_factory=list[TrainingExample])
+    validation: list[TrainingExample] = field(default_factory=list[TrainingExample])
+    test: list[TrainingExample] = field(default_factory=list[TrainingExample])
+    assignments: dict[str, str] = field(default_factory=dict[str, str])
+    rejected: list[Rejection] = field(default_factory=list[Rejection])
+    source_hashes: dict[str, str] = field(default_factory=dict[str, str])
+
+    def examples(self, split: Literal["train", "validation", "test"]) -> list[TrainingExample]:
+        match split:
+            case "train":
+                return self.train
+            case "validation":
+                return self.validation
+            case "test":
+                return self.test
 
     def report(self) -> DataReport:
-        return {"objects": len(self.assignments), "samples": {name: len(getattr(self, name))
-                for name in ("train", "validation", "test")}, "rejected": len(self.rejected),
-                "assignments": self.assignments}
+        return {
+            "objects": len(self.assignments),
+            "samples": {"train": len(self.train), "validation": len(self.validation), "test": len(self.test)},
+            "rejected": len(self.rejected),
+            "assignments": self.assignments,
+        }
 
 
 class BaseDataset(ABC):

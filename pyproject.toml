@@ -32,3 +32,9 @@ include = ["harness_training*"]
 [tool.pytest.ini_options]
 testpaths = ["tests/harness_training"]
 pythonpath = ["."]
+
+[tool.pyright]
+include = ["harness_training", "scripts", "tests/harness_training"]
+exclude = [".pixi", "temp", "3DHarnessBench", "outputs"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"

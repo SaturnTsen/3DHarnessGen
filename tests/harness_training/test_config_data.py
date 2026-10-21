@@ -5,8 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from harness_training.config import DataConfig, TrainingConfig, load_config, save_config
-from harness_training.data.trajectory import TrajectoryDataset
-from harness_training.data.validation import DataError
+from harness_training.data.trajectory import DataError, TrajectoryDataset
 from harness_training.models.qwen import QwenModel
 from harness_training.training.methods.sft import SFTMethod
 from harness_training.training.trainer import Trainer
@@ -130,10 +129,51 @@ def test_split_stays_same_across_scenes(tmp_path, config):
     a = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
     b = TrajectoryDataset(cfg, "Multi-view", config.experiment.seed).prepare()
     assert a.assignments == b.assignments
+    assert a.assignments == TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare().assignments
+    assert a.assignments != TrajectoryDataset(cfg, "Single-view", config.experiment.seed + 1).prepare().assignments
+    assert {name: list(a.assignments.values()).count(name) for name in ("train", "validation", "test")} == {
+        "train": 16, "validation": 2, "test": 2,
+    }
     for split in [a.train, a.validation, a.test]:
         for example in split:
             assert a.assignments[example.record.instance] == next(name for name in ["train", "validation", "test"]
                                                                  if split is getattr(a, name))
+
+
+def test_split_uses_only_selected_scene_paths_and_instances(tmp_path, config):
+    for index in range(20):
+        write_trajectory(tmp_path, "Single-view", f"Object{index}Factory")
+    for index in range(10):
+        write_trajectory(tmp_path, "Multi-view", f"Object{index}Factory")
+    selected_instances = [f"Object{index}Factory" for index in range(5)]
+    cfg = config.data.model_copy(update={
+        "runs_root": tmp_path, "validation_fraction": .2, "test_fraction": .2,
+        "instances": selected_instances,
+    })
+    selected = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
+    assert set(selected.assignments) == set(selected_instances)
+    assert {name: list(selected.assignments.values()).count(name) for name in ("train", "validation", "test")} == {
+        "train": 3, "validation": 1, "test": 1,
+    }
+    for index in range(20, 25):
+        write_trajectory(tmp_path, "Single-view", f"Object{index}Factory")
+        write_trajectory(tmp_path, "Multi-view", f"Object{index}Factory")
+    repeated = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
+    assert repeated.assignments == selected.assignments
+
+
+def test_split_objects_uses_supplied_paths_without_changing_their_order(tmp_path, config):
+    paths = [write_trajectory(tmp_path, "Single-view", f"Object{index}Factory") for index in range(10)]
+    original_paths = paths.copy()
+    cfg = config.data.model_copy(update={"validation_fraction": .2, "test_fraction": .2})
+    dataset = TrajectoryDataset(cfg, "Single-view", config.experiment.seed)
+    assignments = dataset._split_objects(paths)
+    assert paths == original_paths
+    assert set(assignments) == {f"Object{index}Factory" for index in range(10)}
+    assert {name: list(assignments.values()).count(name) for name in ("train", "validation", "test")} == {
+        "train": 6, "validation": 2, "test": 2,
+    }
+    assert dataset._split_objects(paths) == assignments
 
 
 def test_bad_image_alignment_is_rejected(tmp_path, config):

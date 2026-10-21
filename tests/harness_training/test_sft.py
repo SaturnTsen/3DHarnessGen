@@ -1,5 +1,4 @@
 import json
-import hashlib
 
 import pytest
 
@@ -73,14 +72,10 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path):
         processor.save_pretrained(model_path)
         del tiny
         config.model.path = model_path
-        # Include a distinct held-out object to exercise backend evaluation too.
+        # Ten objects give one held-out object at a 10% validation fraction.
         config.data.validation_fraction = .1
-        validation_name = next(f"Holdout{i}Factory" for i in range(1000)
-                               if int(hashlib.sha256(f"42:Holdout{i}Factory".encode()).hexdigest()[:16], 16) / 2**64 < .1)
-        write_trajectory(config.data.runs_root, instance=validation_name)
-        training_name = next(f"Train{i}Factory" for i in range(1000)
-                             if int(hashlib.sha256(f"42:Train{i}Factory".encode()).hexdigest()[:16], 16) / 2**64 >= .1)
-        write_trajectory(config.data.runs_root, instance=training_name)
+        for index in range(9):
+            write_trajectory(config.data.runs_root, instance=f"Object{index}Factory")
         config.model.lora = config.model.lora.model_copy(update={
             "rank": 2, "alpha": 4, "dropout": 0, "target_modules": ["q_proj", "v_proj"],
         })

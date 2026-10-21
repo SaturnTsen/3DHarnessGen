@@ -15,7 +15,7 @@ type Metrics = dict[str, float | int]
 
 
 # ShareGPT uses the reserved Python keyword "from" as its JSON key.
-ShareGPTConversation = TypedDict("ShareGPTConversation", {"from": str, "value": str})
+ShareGPTConversation = TypedDict("ShareGPTConversation", {"from": Literal["human", "gpt", "function_call", "observation"], "value": str})
 
 
 class SourceMapping(TypedDict):
@@ -35,13 +35,13 @@ class Boundary(TypedDict):
     status: NotRequired[str]
 
 
-class TrajectoryMetadata(TypedDict, total=False):
-    benchmark: str
-    instance: str
-    images_complete: bool
+class TrajectoryMetadata(TypedDict):
+    benchmark: NotRequired[str]
+    instance: NotRequired[str]
+    images_complete: NotRequired[bool]
     sharegpt_conversion: ConversionMetadata
-    steps: list[Boundary]
-    chains: list[Boundary]
+    steps: NotRequired[list[Boundary]]
+    chains: NotRequired[list[Boundary]]
 
 
 class ToolFunction(TypedDict):
@@ -59,7 +59,7 @@ class TrajectoryRow(TypedDict):
     conversations: list[ShareGPTConversation]
     system: NotRequired[str]
     images: NotRequired[list[str]]
-    metadata: NotRequired[TrajectoryMetadata]
+    metadata: TrajectoryMetadata
     tools: NotRequired[list[ToolSchema] | str | None]
 
 

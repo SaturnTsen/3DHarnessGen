@@ -3,8 +3,9 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast, TYPE_CHECKING
 
 from harness_training.types import (
     AuditReport, DataReport, JsonObject, JsonValue, Manifest, ManifestPayload, Metrics, PreviewItem,
@@ -20,11 +21,14 @@ from harness_training.templates.qwen import QwenTemplate
 from harness_training.training.methods.base import BaseTrainingMethod
 from harness_training.training.methods.sft import SFTMethod
 
+if TYPE_CHECKING:
+    from harness_training.data.base import TrainingExample
 
-def write_json(path: Path, value: JsonValue | DataReport | Manifest | Metrics) -> None:
+
+def write_json(path: Path, value: Mapping[str, JsonValue] | DataReport | Manifest | Metrics) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps(dict(value), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
 
 
@@ -60,8 +64,8 @@ class Trainer:
         data = self.dataset.prepare()
         if encode:
             for split in ("train", "validation", "test"):
-                accepted = []
-                for example in getattr(data, split):
+                accepted: list[TrainingExample] = []
+                for example in data.examples(split):
                     try:
                         self.template.encode(example)
                     except (TemplateError, OSError, ValueError) as exc:
@@ -77,10 +81,10 @@ class Trainer:
         data = self.prepare()
         return {**data.report(), "rejections": data.rejected}
 
-    def preview(self, limit: int = 1, *, split: str = "train", encode: bool = True) -> list[PreviewItem]:
+    def preview(self, limit: int = 1, *, split: Literal["train", "validation", "test"] = "train", encode: bool = True) -> list[PreviewItem]:
         data = self.prepare()
         results: list[PreviewItem] = []
-        for example in getattr(data, split)[:limit]:
+        for example in data.examples(split)[:limit]:
             try:
                 rendered = self.template.render(example)
                 item: PreviewItem = {"id": example.id, "source": str(example.record.path), "line": example.record.line,
@@ -117,7 +121,7 @@ class Trainer:
                 for path in sorted(code_root.rglob("*.py"))}
         payload: ManifestPayload = {
             "config": identity, "sources": sources, "versions": versions, "code": code,
-            "targets": {split: [e.id for e in getattr(data, split)] for split in ("train", "validation", "test")},
+            "targets": {split: [e.id for e in data.examples(split)] for split in ("train", "validation", "test")},
         }
         return {**payload, "fingerprint": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()}
 
