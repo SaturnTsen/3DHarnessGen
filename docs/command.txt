@@ -1,0 +1,50 @@
+VLLM_ENABLE_RESPONSES_API_STORE=1 \
+pixi run vllm serve /home/ubuntu/models/Qwen3.8-27B \
+  --served-model-name qwen-local \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --tensor-parallel-size 2 \
+  --dtype bfloat16 \
+  --gpu-memory-utilization 0.85 \
+  --max-model-len 16384 \
+  --max-num-seqs 2 \
+  --reasoning-parser qwen3 \
+  --enable-auto-tool-choice \
+  --tool-call-parser qwen3_coder
+
+curl http://localhost:8000/v1/models -H "Authorization: Bearer $VLLM_API_KEY"
+
+curl -s http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $VLLM_API_KEY" \
+  -d '{
+    "model": "qwen-local",
+    "messages": [
+      {
+        "role": "developer",
+        "content": "You are a helpful assistant."
+      },
+      {
+        "role": "user",
+        "content": "Hello!"
+      }
+    ]
+  }'
+
+
+curl -s http://localhost:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $VLLM_API_KEY" \
+  -d '{
+    "model": "qwen-local",
+    "input": "Tell me a three sentence bedtime story about a unicorn."
+  }'
+
+curl -s http://localhost:8000/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $VLLM_API_KEY" \
+  -d '{
+    "model": "qwen-local",
+    "previous_response_id": "resp_bc746a3a2aaaf81f",
+    "input": "Continue the unicorn story with three more sentences."
+  }' | jq

@@ -1,5 +1,9 @@
 # 四种场景的后训练设计
 
+本文描述现有 ShareGPT 读取器的设计。后续 messages 与 tools 接入以[技术结论](POST_TRAINING_REFERENCE_REPORT.md)、[轨迹交付规范](POST_TRAIN_TRAJECTORY_CONTRACT.md)和[改动计划](POST_TRAINING_IMPLEMENTATION_PLAN.md)为准；独立 v2 格式校验器已实现；训练读取器和模板尚未接入。
+
+当前交付契约使用非空 `tools: list[ToolContext]`，`ToolContext = list[Tool]` 且每组非空，Step 用必填 `tool_context_index` 选择完整上下文。来源数组与上下文逐项对应。以下 ShareGPT 结构仅描述既有实现，不是新数据交付规范。
+
 本文记录已确定的模块职责，并作为第一版代码的实现依据。四种场景分别训练，代码从现有轨迹文件开始工作。
 
 ## 1. 我们要做什么
@@ -142,7 +146,7 @@ outputs/post_training/
 
 当前 ShareGPT 文件还保留了转换前后的消息映射。原来的步骤和执行过程边界必须通过这份映射定位，不能直接当成新对话的下标。对于明确标注为 Qwen 格式、已经写进 `gpt.value` 的工具调用，保留原有表示；纯 `function_call` 则转换为 Qwen 的结构化调用。无法可靠识别的样本记录后跳过。
 
-交互数据目前没有统一的顶层 `tools` 字段。设计允许配置提供与实际执行环境一致的工具定义，数据中的定义存在时进行一致性检查。不能仅凭调用参数猜出完整工具定义。正式训练交互场景前，要把这项补齐并检查通过。
+旧读取器的工具配置不再作为历史工具定义的补全来源。v2 接入时，模板只接收 `trajectory.tools[step.tool_context_index]`，不能把其他请求的工具或配置文件当作当前请求的历史事实。无工具或未知工具上下文的记录不满足 v2，不能使用空列表、null 或占位定义通过校验。此规则也适用于单图、多图的脚本目标。
 
 ## 6. YAML 配置
 

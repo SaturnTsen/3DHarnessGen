@@ -1,0 +1,101 @@
+{
+  "purpose": "合成示例定义，不是历史恢复，不可用于训练。recorded 仅表示工具定义在本示例文件中有直接记录，不代表教师请求曾使用它们。",
+  "tools": [
+    [
+      {
+        "type": "custom",
+        "custom": {
+          "name": "exec",
+          "description": "合成演示工具：执行 JavaScript；此说明不是原教师的工具定义。",
+          "format": {
+            "type": "text"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "wait",
+          "description": "合成演示工具：等待运行单元；此参数定义不是从历史调用推断出的原始 schema。",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "cell_id": {
+                "type": "string"
+              },
+              "yield_time_ms": {
+                "type": "integer"
+              },
+              "max_tokens": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "cell_id"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    ],
+    [
+      {
+        "type": "custom",
+        "custom": {
+          "name": "exec",
+          "description": "合成演示工具：执行 JavaScript；此说明不是原教师的工具定义。",
+          "format": {
+            "type": "text"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "wait",
+          "description": "合成演示工具：等待运行单元；此参数定义不是从历史调用推断出的原始 schema。",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "cell_id": {
+                "type": "string"
+              },
+              "yield_time_ms": {
+                "type": "integer"
+              },
+              "max_tokens": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "cell_id"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "demo_inspect",
+          "description": "仅用于演示第二组上下文新增工具；真实会话不曾记录此工具。",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        }
+      }
+    ]
+  ],
+  "assignment": {
+    "target_indices_before_20": 0,
+    "target_indices_from_20": 1
+  }
+}

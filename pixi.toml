@@ -5,6 +5,7 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
+validate-trajectory = "python tools/validate_trajectory.py"
 post-train = "python -m harness_training.cli"
 test-post-training = "python -m pytest tests/harness_training"
 type-check = "python -m pyright --pythonpath .pixi/envs/default/bin/python"
