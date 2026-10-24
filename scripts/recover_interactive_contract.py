@@ -15,7 +15,7 @@ from pathlib import Path
 
 from scripts.export_astra_chat_completions import ArchiveImages
 from scripts.rebuild_astra_contract import Evidence, attach_additional_tools, audit, indexed_tools, interactive, step
-from tools.validate_trajectory import Trajectory
+from harness_training.data.contract import Trajectory
 
 
 def recover(row, mapping, context, source):
@@ -30,18 +30,25 @@ def recover(row, mapping, context, source):
                                    if "推理事件" in event["reason"]]
     metadata["steps"] = []
     for message in row["messages"]:
-        if message["role"] != "assistant":
+        is_call = message.get("type") in {"function_call", "custom_tool_call"}
+        if message.get("role") != "assistant" and not is_call:
             continue
         index = message["index"]
         # This recovery is restricted to a single, fresh, uncompacted turn.
         # Tool discovery responses remain ordinary tool messages in the prefix.
-        kind = "tool_call" if message.get("tool_calls") else "status"
+        kind = "tool_call" if is_call else "status"
         if index == len(row["messages"]) - 1 and kind == "status":
             kind = "final_reply"
         target = step(index, kind, mapping["message_sources"][index][0],
                       context=list(range(index)), provenance="reconstructed", status="UNKNOWN")
         metadata["steps"].append(target)
     attach_additional_tools(row, mapping, context["tools"])
+    # Keep reconstruction evidence in the repair mapping, outside the v3 delivery.
+    mapping["tools_provenance"] = metadata.pop("tools_provenance")
+    mapping["excluded_events"] = metadata.pop("excluded_events")
+    for target in metadata["steps"]:
+        target.pop("tool_context_index")
+        target.pop("input_provenance")
     Trajectory.model_validate(row)
     mapping.update(tool_definitions="recovered", request_boundaries="reconstructed")
     return row

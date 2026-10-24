@@ -56,8 +56,7 @@ class Trainer:
     @property
     def template(self) -> BaseTemplate:
         if self._template is None:
-            self._template = QwenTemplate(self.config.template, self.model.processor,
-                                          strip_plugin_recommendations=self.config.data.strip_plugin_recommendations)
+            self._template = QwenTemplate(self.config.template, self.model.processor)
         return self._template
 
     def prepare(self, *, encode: bool = False) -> DatasetBundle:
@@ -107,13 +106,10 @@ class Trainer:
         cast(JsonObject, identity["method"]).pop("resume_from")
         sources = dict(data.source_hashes)
         images = {path for split in (data.train, data.validation, data.test) for example in split
-                  for index in example.indices for path in example.record.images_by_conversation[index]}
+                  for index in example.indices for path in example.record.images_by_message[index]}
         for path in sorted(images):
             sources[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(self.config.model.path.glob("*.json")) + sorted(self.config.model.path.glob("*.jinja")):
-            sources[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
-        if self.config.template.tools_path:
-            path = self.config.template.tools_path
             sources[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
         versions = {name: importlib.metadata.version(name) for name in ("torch", "transformers", "trl", "pydantic-yaml")}
         code_root = Path(__file__).resolve().parents[1]

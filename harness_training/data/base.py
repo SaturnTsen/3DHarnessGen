@@ -4,7 +4,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
-from harness_training.types import DataReport, Rejection, TrajectoryRow
+from harness_training.types import DataReport, Rejection
+from .contract import Trajectory
 
 
 @dataclass
@@ -12,8 +13,8 @@ class TrajectoryRecord:
     path: Path
     line: int
     instance: str
-    row: TrajectoryRow
-    images_by_conversation: tuple[tuple[Path, ...], ...]
+    row: Trajectory
+    images_by_message: tuple[tuple[Path, ...], ...]
 
 
 @dataclass(frozen=True)
@@ -23,10 +24,11 @@ class TrainingExample:
     record: TrajectoryRecord
     indices: tuple[int, ...]
     target_index: int
+    step_id: str
 
     @property
     def id(self) -> str:
-        return f"{self.record.instance}:{self.record.line}:{self.target_index}"
+        return f"{self.record.instance}:{self.record.row.metadata.session_id}:{self.step_id}"
 
 
 @dataclass

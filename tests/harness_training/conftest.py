@@ -17,20 +17,25 @@ def write_trajectory(root: Path, scene: str = "Single-view", instance: str = "Ob
 
     path = root / scene / "gpt-6-astra" / instance / "post_train_trajectory" / "trajectory.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", (32, 32), "green").save(path.parent / "reference.png")
-    image = "absent.png" if missing else "reference.png"
-    conversations = [{"from": "human", "value": "<image>Write a Blender script."},
-                     {"from": "gpt", "value": "import bpy\nprint('first')"},
-                     {"from": "human", "value": "<image>Fix this script: import bpy\nprint('first')"},
-                     {"from": "gpt", "value": "import bpy\nprint('fixed')"}]
-    metadata = {"benchmark": scene, "instance": instance, "images_complete": True,
-                "steps": [{"message_start": 1, "message_end": 3, "status": "ERR_EXEC" if failed_first else "OK"},
-                          {"message_start": 3, "message_end": 5, "status": "OK"}],
-                "sharegpt_conversion": {"conversation_source_mapping": [
-                    {"source_message_indices": [i + 1], "tool_call_ids": [], "observation_call_ids": []}
-                    for i in range(4)]}}
-    row = {"system": "Return a complete Blender script.", "conversations": conversations,
-           "images": [image, "reference.png"], "metadata": metadata}
+    (path.parent / "images").mkdir(exist_ok=True)
+    Image.new("RGB", (32, 32), "green").save(path.parent / "images/reference.png")
+    image = "images/absent.png" if missing else "images/reference.png"
+    source = {"path": "source.json", "sha256": "a" * 64, "locator": "/"}
+    def user(index, text, image):
+        return {"index": index, "role": "user", "content": [
+            {"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": image}}]}
+    row = {"schema_version": 3, "model": "gpt-6-astra", "tools": [], "messages": [
+        {"index": 0, "role": "system", "content": "Return a complete Blender script."},
+        user(1, "Write a Blender script.", image),
+        {"index": 2, "role": "assistant", "content": "import bpy\nprint('first')"},
+        user(3, "Fix this script: import bpy\nprint('first')", "images/reference.png"),
+        {"index": 4, "role": "assistant", "content": "import bpy\nprint('fixed')"}],
+        "metadata": {"scene": scene, "instance": instance, "session_id": "session", "view": "script",
+                     "sources": [source], "steps": [
+            {"id": "first", "context_indices": [0, 1], "target_index": 2, "target_kind": "script",
+             "status": "ERROR" if failed_first else "OK", "source": source},
+            {"id": "fix", "context_indices": [0, 3], "target_index": 4, "target_kind": "script",
+             "status": "OK", "source": source}]}}
     path.write_text(json.dumps(row) + "\n")
     return path
 
@@ -57,6 +62,7 @@ def config(tmp_path):
     config.data.test_fraction = 0
     config.model.dtype = "float32"
     config.method.backend.bf16 = False
+    config.method.backend.fp16 = False
     config.method.backend.dataloader_pin_memory = False
     config.template.min_image_pixels = 1024
     config.template.max_image_pixels = 1024

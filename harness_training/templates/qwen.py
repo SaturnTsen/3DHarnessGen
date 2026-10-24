@@ -1,108 +1,77 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import cast
 
-from harness_training.types import (
-    ChatMessage, FunctionCall, ImageBlock, Processor, TensorInputs, TextBlock, ToolCall, ToolSchema,
-)
-
+from harness_training.types import ChatMessage, Processor, TensorInputs, ToolSchema
 from harness_training.config import TemplateConfig
 from harness_training.data.base import TrainingExample
+from harness_training.data.contract import AdditionalTools, CustomToolCall, FunctionToolCall, ToolOutput, InputImageBlock, ImageBlock, TextFormat, GrammarFormat
 from .base import BaseTemplate, RenderedExample, SampleTooLong, TemplateError
 
 
 class QwenTemplate(BaseTemplate):
-    def __init__(self, config: TemplateConfig, processor: Processor, *, strip_plugin_recommendations: bool):
+    def __init__(self, config: TemplateConfig, processor: Processor):
         self.config, self.processor = config, processor
-        self.strip_plugin_recommendations = strip_plugin_recommendations
-        self.tools: list[ToolSchema] | None = None
-        if config.tools_path:
-            self.tools = cast(list[ToolSchema], json.loads(config.tools_path.read_text(encoding="utf-8")))
-            if not isinstance(self.tools, list) or not all(isinstance(t, dict) and isinstance(t.get("function"), dict)
-                                                        and t["function"].get("name") for t in self.tools):
-                raise TemplateError("tools_path must contain a list of function tool schemas")
-
-    @staticmethod
-    def _tool_list(value: list[ToolSchema] | str | None) -> list[ToolSchema] | None:
-        if isinstance(value, str):
-            value = cast(list[ToolSchema], json.loads(value))
-        if value is not None and not isinstance(value, list):
-            raise TemplateError("tools must be a list or a JSON-encoded list")
-        return value
 
     def _messages(self, example: TrainingExample) -> tuple[list[ChatMessage], list[Path], list[ToolSchema] | None]:
-        row = example.record.row
-        tools = self._tool_list(row.get("tools"))
-        if tools is not None and self.tools is not None and tools != self.tools:
-            raise TemplateError("Recorded tools disagree with configured execution environment")
-        tools = tools if tools is not None else self.tools
-        allowed_tools = {t["function"]["name"] for t in tools or []}
-        mapping = row["metadata"]["sharegpt_conversion"]["conversation_source_mapping"]
-        messages: list[ChatMessage] = [{"role": "system", "content": row.get("system", "")}]
+        messages: list[ChatMessage] = []
         images: list[Path] = []
-        pending: set[str] = set()
-        returned: set[str] = set()
+        tools: list[ToolSchema] = []
+        instructions: list[str] = []
         for index in example.indices:
-            conversation = row["conversations"][index]
-            role, value = conversation["from"], conversation["value"]
-            meta = mapping[index]
-            call_ids = meta.get("tool_call_ids", [])
-            if role in {"gpt", "function_call"}:
-                if pending - returned:
-                    raise TemplateError(f"Tool results missing for calls: {sorted(pending - returned)}")
-                pending, returned = set(call_ids), set()
-            if role == "human" and self.strip_plugin_recommendations:
-                value = re.sub(r"<recommended_plugins>.*?</recommended_plugins>", "", value, flags=re.DOTALL)
-            if role == "function_call":
-                try:
-                    calls = cast(FunctionCall | list[FunctionCall], json.loads(value))
-                except json.JSONDecodeError as exc:
-                    raise TemplateError("function_call is not valid JSON") from exc
-                calls = calls if isinstance(calls, list) else [calls]
-                if len(calls) != len(call_ids):
-                    raise TemplateError("Tool call IDs do not match recorded calls")
-                parsed: list[ToolCall] = []
-                for call, call_id in zip(calls, call_ids, strict=True):
-                    if not isinstance(call, dict) or not isinstance(call.get("name"), str) or not isinstance(call.get("arguments"), dict):
-                        raise TemplateError("Tool calls require a name and an arguments object")
-                    if call["name"] not in allowed_tools:
-                        raise TemplateError(f"No tool schema for {call['name']}")
-                    parsed.append({"id": call_id, "type": "function", "function": call})
-                messages.append({"role": "assistant", "content": "", "tool_calls": parsed})
+            item = example.record.row.messages[index]
+            if isinstance(item, AdditionalTools):
+                for tool in item.tool_context():
+                    definition = tool.definition.model_dump(exclude_unset=True, exclude={"type", "format"})
+                    if tool.type == "custom":
+                        parameter = self.config.custom_tools.get(tool.definition.name)
+                        if not parameter:
+                            raise TemplateError(f"No custom tool mapping for {tool.definition.name}")
+                        definition["parameters"] = {"type": "object", "properties": {
+                            parameter: {"type": "string"}}, "required": [parameter], "additionalProperties": False}
+                        definition["description"] += "\nOriginal input format: " + json.dumps(
+                            cast(TextFormat | GrammarFormat, tool.definition.format).model_dump(), ensure_ascii=False)
+                    if tool.namespace:
+                        definition["description"] += f"\nNamespace: {tool.namespace}\n{tool.namespace_description or ''}"
+                    tools.append(cast(ToolSchema, {"type": "function", "function": definition}))
                 continue
-            if role == "gpt" and call_ids:
-                # The exporter explicitly marks these already-rendered Qwen calls.
-                # Keep their bytes rather than attempting to parse arbitrary code as XML.
-                if row["metadata"]["sharegpt_conversion"].get("mixed_assistant_tool_format") != "qwen3_8":
-                    raise TemplateError("Unsupported mixed assistant/tool format")
-                names = re.findall(r"<function=([^>]+)>", value)
-                if len(names) != len(call_ids) or any(name not in allowed_tools for name in names):
-                    raise TemplateError("Mixed assistant reply has missing or unknown tool calls")
-            if role == "observation":
-                ids = meta.get("observation_call_ids", [])
-                if not ids or not set(ids) <= pending:
-                    raise TemplateError("Tool observation cannot be matched to preceding calls")
-                returned.update(ids)
-            blocks: list[TextBlock | ImageBlock] = []
-            bound = iter(example.record.images_by_conversation[index])
-            pieces = value.split("<image>")
-            for position, text in enumerate(pieces):
-                if text:
-                    blocks.append({"type": "text", "text": text})
-                if position < len(pieces) - 1:
-                    image = next(bound)
-                    images.append(image)
-                    blocks.append({"type": "image"})
-            message: ChatMessage = {"role": {"human": "user", "gpt": "assistant", "observation": "tool"}[role], "content": blocks}
-            if role == "observation":
-                message["tool_call_id"] = meta["observation_call_ids"][0]
+            images.extend(example.record.images_by_message[index])
+            if isinstance(item, (CustomToolCall, FunctionToolCall)):
+                if isinstance(item, CustomToolCall):
+                    parameter = self.config.custom_tools.get(item.name)
+                    if not parameter:
+                        raise TemplateError(f"No custom tool mapping for {item.name}")
+                    arguments = {parameter: item.input}
+                else:
+                    arguments = json.loads(item.arguments)
+                messages.append(cast(ChatMessage, {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": item.call_id, "type": "function", "function": {
+                        "name": item.name, "arguments": arguments}}]}))
+                continue
+            if isinstance(item, ToolOutput):
+                content = item.output if isinstance(item.output, str) else [
+                    {"type": "image"} if isinstance(block, InputImageBlock)
+                    else {"type": "text", "text": block.text} for block in item.output]
+                messages.append(cast(ChatMessage, {"role": "tool", "tool_call_id": item.call_id,
+                                                   "content": content}))
+                continue
+            content = item.content
+            if isinstance(content, list):
+                content = [({"type": "image"} if isinstance(block, ImageBlock)
+                            else block.model_dump()) for block in content]
+            if item.role in {"system", "developer"}:
+                instructions.append(content if isinstance(content, str) else
+                                    "".join(block["text"] for block in content or []))
+                continue
+            message = cast(ChatMessage, {"role": item.role, "content": content or ""})
             messages.append(message)
-        if messages[-1]["role"] != "assistant" or example.indices[-1] != example.target_index:
+        if instructions:
+            messages.insert(0, {"role": "system", "content": "\n\n".join(instructions)})
+        if not messages or messages[-1]["role"] != "assistant" or example.indices[-1] != example.target_index:
             raise TemplateError("The selected target must be the final assistant message")
-        return messages, images, tools
+        return messages, images, tools or None
 
     def render(self, example: TrainingExample) -> RenderedExample:
         messages, images, tools = self._messages(example)

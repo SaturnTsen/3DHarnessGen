@@ -5,7 +5,7 @@ import pytest
 from scripts.export_astra_chat_completions import ArchiveImages
 from scripts.rebuild_astra_contract import Evidence, environment_message, interactive, runtime_sources
 from scripts.recover_interactive_contract import recover
-from tools.validate_trajectory import Trajectory
+from harness_training.data.contract import Trajectory
 
 
 def test_interactive_generation_boundaries_and_tool_images(tmp_path):
@@ -29,10 +29,10 @@ def test_interactive_generation_boundaries_and_tool_images(tmp_path):
             "internal_chat_message_metadata_passthrough": meta}},
         {"type": "response_item", "payload": {
             "type": "custom_tool_call_output", "call_id": "call", "output": [
-                {"type": "text", "text": "before"},
-                {"type": "image_url", "image_url": {"url": "screenshot", "detail": "high"}},
-                {"type": "text", "text": "after"},
-                {"type": "image_url", "image_url": {"url": "screenshot", "detail": "high"}}]}},
+                {"type": "input_text", "text": "before"},
+                {"type": "input_image", "image_url": "screenshot", "detail": "high"},
+                {"type": "input_text", "text": "after"},
+                {"type": "input_image", "image_url": "screenshot", "detail": "high"}]}},
         {"type": "response_item", "payload": {"type": "reasoning", "summary": ["private"]}},
         {"type": "response_item", "payload": {
             "type": "message", "role": "assistant", "phase": "final_answer",
@@ -43,22 +43,25 @@ def test_interactive_generation_boundaries_and_tool_images(tmp_path):
 
     class Images:
         def save(self, value):
-            assert value == {"url": "screenshot", "detail": "high"}
+            assert value == "screenshot"
             return "images/screenshot.png"
 
     rows, mappings = interactive(instance, Images(), Evidence())
     row = rows[0]
     assert row["messages"][0]["role"] == "developer"
     assert row["tools"] is None
-    assert len(row["messages"]) == 5
+    assert len(row["messages"]) == 6
     assert row["messages"][2]["content"] == [{"type": "text", "text": "Inspecting."}]
-    assert row["messages"][2]["tool_calls"][0]["custom"]["input"] == "image(result);"
-    assert row["messages"][3]["role"] == "tool"
-    assert row["messages"][3]["tool_call_id"] == "call"
-    assert [b["type"] for b in row["messages"][3]["content"]] == ["text", "image_url", "text", "image_url"]
-    assert row["messages"][3]["content"][1]["image_url"]["detail"] == "high"
-    assert len(mappings[0]["message_sources"][2]) == 2
-    assert [s["target_kind"] for s in row["metadata"]["steps"]] == ["tool_call", "final_reply"]
+    assert row["messages"][3] == {"index": 3, "type": "custom_tool_call", "call_id": "call",
+                                   "name": "exec", "input": "image(result);"}
+    assert "tool_calls" not in row["messages"][2]
+    assert "role" not in row["messages"][4]
+    assert row["messages"][4]["call_id"] == "call"
+    assert [b["type"] for b in row["messages"][4]["output"]] == ["input_text", "input_image", "input_text", "input_image"]
+    assert row["messages"][4]["output"][1]["detail"] == "high"
+    assert len(mappings[0]["message_sources"][2]) == 1
+    assert len(mappings[0]["message_sources"][3]) == 1
+    assert [s["target_kind"] for s in row["metadata"]["steps"]] == ["status", "tool_call", "final_reply"]
     assert all(s["input_provenance"] == "reconstructed"
                and s["context_indices"] == list(range(s["target_index"]))
                for s in row["metadata"]["steps"])
@@ -74,16 +77,17 @@ def test_interactive_generation_boundaries_and_tool_images(tmp_path):
     assert recovered["messages"][0]["tools"] == context["tools"]
     assert recovered["messages"][0]["type"] == "additional_tools"
     assert len(mappings[0]["message_sources"]) == len(recovered["messages"])
-    call, reply = recovered["metadata"]["steps"]
-    assert call["context_indices"] == [0, 1, 2]
-    assert call["target_index"] == 3
-    assert reply["context_indices"] == [0, 1, 2, 3, 4]
-    assert reply["target_index"] == 5
-    assert call["tool_context_index"] == 0
-    assert reply["tool_context_index"] == 0
+    text, call, reply = recovered["metadata"]["steps"]
+    assert text["context_indices"] == [0, 1, 2]
+    assert call["context_indices"] == [0, 1, 2, 3]
+    assert call["target_index"] == 4
+    assert reply["context_indices"] == [0, 1, 2, 3, 4, 5]
+    assert reply["target_index"] == 6
+    assert "tool_context_index" not in call
+    assert "input_provenance" not in reply
     assert "available_tool_indices" not in call
     assert recovered["tools"][0][0]["namespace_description"] == "Execution tools"
-    assert recovered["metadata"]["tools_provenance"][0]["status"] == "recovered"
+    assert mappings[0]["tools_provenance"][0]["status"] == "recovered"
     context["recovery"]["static_tool_context"] = False
     with pytest.raises(ValueError, match="per-request snapshots"):
         recover(row, mappings[0], context, source)

@@ -1,1 +1,1 @@
-"""Post-training from existing ShareGPT trajectories."""
+"""Post-training from existing v3 trajectories."""

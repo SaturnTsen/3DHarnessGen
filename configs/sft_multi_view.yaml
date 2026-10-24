@@ -1,4 +1,5 @@
 data:
+  schema_version: 3
   accepted_statuses:
   - OK
   include_final_reply: true
@@ -6,7 +7,6 @@ data:
   missing_images: skip_sample
   runs_root: ../3DHarnessBench/runs
   source_model: gpt-6-astra
-  strip_plugin_recommendations: true
   test_fraction: 0.1
   validation_fraction: 0.1
   verify_images: true
@@ -248,5 +248,6 @@ template:
   target_add_generation_prompt: false
   token_type_padding_value: 0
   tokenize: false
-  tools_path: null
+  custom_tools:
+    exec: input
   truncation: false

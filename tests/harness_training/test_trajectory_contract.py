@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from tools.validate_trajectory import validate_record
+from harness_training.data.contract import validate_record
+from harness_training.data.contract import AdditionalTools, GrammarFormat
 
 
 @pytest.fixture
@@ -17,53 +18,48 @@ def record():
         "model": "test-teacher",
         "messages": [
             {"index": 0, "role": "developer", "content": "Inspect the reference."},
-            {"index": 1, "role": "developer", "type": "additional_tools", "tools": [{"type": "custom", "name": "exec", "description": "Synthetic test tool", "format": {"type": "text"}}]},
+            {"index": 1, "role": "developer", "type": "additional_tools", "tools": [{"type": "namespace", "name": "functions", "description": "Execution", "tools": [{"type": "custom", "name": "exec", "description": "Synthetic test tool", "format": {"type": "text"}}]}]},
             {"index": 2, "role": "user", "content": [
                 {"type": "text", "text": "Inspect this."},
                 {"type": "image_url", "image_url": {"url": "images/reference.png"}},
             ]},
-            {"index": 3, "role": "assistant", "content": None, "tool_calls": [
-                {"id": "call_render_1", "type": "custom", "custom": {
-                    "name": "exec", "input": "image(result);"}},
-            ]},
-            {"index": 4, "role": "tool", "tool_call_id": "call_render_1", "content": [
-                {"type": "image_url", "image_url": {"url": "images/result.png"}},
+            {"index": 3, "type": "custom_tool_call", "call_id": "call_render_1",
+             "name": "exec", "input": "image(result);"},
+            {"index": 4, "type": "custom_tool_call_output", "call_id": "call_render_1", "output": [
+                {"type": "input_image", "image_url": "images/result.png"},
             ]},
             {"index": 5, "role": "assistant", "content": "The base is too wide."},
         ],
-        "tools": [[{"type": "custom", "custom": {
+        "tools": [[{"type": "custom", "namespace": "functions", "namespace_description": "Execution", "custom": {
             "name": "exec", "description": "Synthetic test tool", "format": {"type": "text"}}}]],
         "metadata": {
             "scene": "ActiveVisual", "instance": "test-object", "session_id": "test-session",
             "view": "agent", "sources": [source],
-            "tools_provenance": [{"status": "recorded", "sources": [source]}],
             "steps": [
-                {"id": "call", "context_indices": [0, 1, 2], "tool_context_index": 0,
+                {"id": "call", "context_indices": [0, 1, 2],
                  "target_index": 3, "target_kind": "tool_call", "status": "UNKNOWN",
-                 "input_provenance": "recorded", "source": source},
-                {"id": "reply", "context_indices": [0, 1, 2, 3, 4], "tool_context_index": 0,
+                 "source": source},
+                {"id": "reply", "context_indices": [0, 1, 2, 3, 4],
                  "target_index": 5, "target_kind": "final_reply", "status": "UNKNOWN",
-                 "input_provenance": "recorded", "source": source},
+                 "source": source},
             ],
-            "excluded_events": [],
         },
     }
 
 
 def test_shared_tool_context(record):
     parsed = validate_record(json.dumps(record))
-    assert parsed.metadata.steps[0].tool_context_index == parsed.metadata.steps[1].tool_context_index == 0
+    declaration = parsed.messages[1]
+    assert isinstance(declaration, AdditionalTools)
+    assert declaration.tool_context()[0] == parsed.tools[0][0]
+    assert parsed.tools[0][0].custom is not None
     assert parsed.tools[0][0].custom.name == "exec"
 
 
 def test_delivered_example():
-    path = Path("docs/examples/bathroom_sink/trajectory.json")
-    parsed = validate_record(path.read_text())
-    assert len(parsed.messages) == 28
-    assert len(parsed.metadata.steps) == 12
-    assert [len(context) for context in parsed.tools] == [2, 3]
-    assert {step.tool_context_index for step in parsed.metadata.steps} == {0, 1}
-    assert all(step.input_provenance == "unknown" for step in parsed.metadata.steps)
+    parsed = validate_record(Path("docs/trajectory_example.json").read_text())
+    assert parsed.schema_version == 3
+    assert parsed.metadata.steps
 
 
 @pytest.mark.parametrize("change", [
@@ -79,18 +75,12 @@ def test_delivered_example():
     lambda r: r["metadata"]["steps"][0].update(target_index=2, context_indices=[0, 1]),
     lambda r: r["metadata"]["steps"][0].update(target_kind="final_reply"),
     lambda r: r["metadata"]["steps"][1].update(context_indices=[0, 1, 2, 4]),
-    lambda r: r["messages"][4].update(tool_call_id="missing"),
+    lambda r: r["messages"][4].update(call_id="missing"),
     lambda r: r["messages"][2]["content"][1]["image_url"].update(url="images/../outside.png"),
     lambda r: r["metadata"]["sources"][0].update(sha256="placeholder"),
     lambda r: r["tools"][0].append(copy.deepcopy(r["tools"][0][0])),
     lambda r: r["tools"][0][0]["custom"].update(name="other"),
     lambda r: r["metadata"].update(view="script"),
-    lambda r: r["metadata"]["tools_provenance"][0].update(sources=[]),
-    lambda r: r["metadata"]["tools_provenance"][0].update(status="unknown"),
-    lambda r: r["metadata"]["tools_provenance"][0].update(status="not_applicable"),
-    lambda r: r["metadata"].update(tools_provenance=[]),
-    lambda r: r["metadata"]["tools_provenance"].append(copy.deepcopy(r["metadata"]["tools_provenance"][0])),
-    lambda r: r["metadata"].update(tools_provenance=r["metadata"]["tools_provenance"][0]),
 ])
 def test_invalid_relationships(record, change):
     change(record)
@@ -121,28 +111,16 @@ def test_old_selection_fields_are_rejected(record, field, value):
         validate_record(json.dumps(record))
 
 
-@pytest.mark.parametrize("index", [None, -1, 1, True, 0.0, "0"])
-def test_invalid_tool_context_index(record, index):
-    record["metadata"]["steps"][0]["tool_context_index"] = index
-    with pytest.raises(ValueError):
-        validate_record(json.dumps(record))
-
-
-def test_tool_context_index_is_required(record):
-    del record["metadata"]["steps"][0]["tool_context_index"]
-    with pytest.raises(ValueError):
-        validate_record(json.dumps(record))
-
-
 def test_function_context_does_not_require_exec(record):
     record["tools"] = [[{"type": "function", "function": {
         "name": "render", "description": "Render", "parameters": {"type": "object"}}}]]
     sync_tools(record)
-    record["messages"][3]["tool_calls"] = [{"id": "call_render_1", "type": "function", "function": {
-        "name": "render", "arguments": '{"view":"front"}'}}]
+    record["messages"][3] = {"index": 3, "type": "function_call", "call_id": "call_render_1",
+                             "name": "render", "arguments": '{"view":"front"}'}
+    record["messages"][4]["type"] = "function_call_output"
     validate_record(json.dumps(record))
     for invalid in ['[]', '{"view":NaN}', '{"view":1,"view":2}', 'not json']:
-        record["messages"][3]["tool_calls"][0]["function"]["arguments"] = invalid
+        record["messages"][3]["arguments"] = invalid
         with pytest.raises(ValueError):
             validate_record(json.dumps(record))
 
@@ -159,29 +137,15 @@ def test_different_contexts_and_historical_calls(record):
     later = copy.deepcopy(record["tools"][0])
     later[0]["custom"]["name"] = "later_tool"
     record["tools"].append(later)
-    record["metadata"]["tools_provenance"].append(copy.deepcopy(record["metadata"]["tools_provenance"][0]))
-    record["metadata"]["steps"][1]["tool_context_index"] = 1
     add_later_input(record)
-    validate_record(json.dumps(record))  # Historical exec call need not be available now.
-    record["metadata"]["steps"][0]["tool_context_index"] = 1
-    with pytest.raises(ValueError, match="unavailable"):
+    validate_record(json.dumps(record))
+    record["metadata"]["steps"][0]["context_indices"] = [0, 2, 5]
+    with pytest.raises(ValueError):
         validate_record(json.dumps(record))
-
-
-def test_same_tool_name_can_have_different_definitions(record):
-    later = copy.deepcopy(record["tools"][0])
-    later[0]["custom"]["description"] = "Later context"
-    record["tools"].append(later)
-    record["metadata"]["tools_provenance"].append(copy.deepcopy(record["metadata"]["tools_provenance"][0]))
-    record["metadata"]["steps"][1]["tool_context_index"] = 1
-    add_later_input(record)
-    parsed = validate_record(json.dumps(record))
-    assert parsed.tools[0][0].custom.description != parsed.tools[1][0].custom.description
 
 
 def test_unreferenced_empty_context_is_rejected(record):
     record["tools"].append([])
-    record["metadata"]["tools_provenance"].append(copy.deepcopy(record["metadata"]["tools_provenance"][0]))
     with pytest.raises(ValueError, match="must not be empty"):
         validate_record(json.dumps(record))
 
@@ -196,19 +160,15 @@ def test_tool_indices_are_local_to_context(record):
 
 @pytest.mark.parametrize("scene", ["Single-view", "Multi-view"])
 def test_script_view_omits_codex_context(record, scene):
-    record["metadata"].update(scene=scene, view="script", tools_provenance=[])
+    record["metadata"].update(scene=scene, view="script")
     record["tools"] = []
     record["messages"] = [record["messages"][i] for i in (0, 2, 5)]
     for i, message in enumerate(record["messages"]):
         message["index"] = i
     target = record["metadata"]["steps"][1]
-    target.update(target_kind="script", target_index=2, context_indices=[0, 1], tool_context_index=None)
+    target.update(target_kind="script", target_index=2, context_indices=[0, 1])
     record["metadata"]["steps"] = [target]
     validate_record(json.dumps(record))
-    target["tool_context_index"] = 0
-    with pytest.raises(ValueError, match="must be null"):
-        validate_record(json.dumps(record))
-    target["tool_context_index"] = None
     record["tools"] = [[{"type": "custom", "custom": {
         "name": "exec", "description": "Codex runtime", "format": {"type": "text"}}}]]
     with pytest.raises(ValueError, match="must omit Codex"):
@@ -222,6 +182,12 @@ def test_strict_json(raw):
 
 
 def test_cli_json_and_jsonl(record, tmp_path):
+    # The user explicitly froze the standalone legacy CLI. Verify its existing
+    # behavior separately; native deliveries use the data module and audit.
+    record["messages"][3] = {"index": 3, "role": "assistant", "content": None, "tool_calls": [
+        {"id": "call_render_1", "type": "custom", "custom": {"name": "exec", "input": "image(result);"}}]}
+    record["messages"][4] = {"index": 4, "role": "tool", "tool_call_id": "call_render_1", "content": [
+        {"type": "image_url", "image_url": {"url": "images/result.png"}}]}
     path = tmp_path / "trajectory.json"
     path.write_text(json.dumps(record, indent=2))
     command = [sys.executable, "tools/validate_trajectory.py"]
@@ -238,12 +204,14 @@ def test_cli_json_and_jsonl(record, tmp_path):
 
 
 def sync_tools(record):
-    record["messages"][1]["tools"] = [{"type": t["type"], **copy.deepcopy(t[t["type"]])} for t in record["tools"][0]]
+    for tool in record["tools"][0]:
+        tool.update(namespace="functions", namespace_description="Execution")
+    record["messages"][1]["tools"][0]["tools"] = [{"type": t["type"], **copy.deepcopy(t[t["type"]])} for t in record["tools"][0]]
 
 
 def add_later_input(record):
     native = [{"type": t["type"], **copy.deepcopy(t[t["type"]])} for t in record["tools"][1]]
-    record["messages"].insert(5, {"index": 5, "role": "developer", "type": "additional_tools", "tools": native})
+    record["messages"].insert(5, {"index": 5, "role": "developer", "type": "additional_tools", "tools": [{"type": "namespace", "name": "functions", "description": "Execution", "tools": native}]})
     record["messages"][6]["index"] = 6
     record["metadata"]["steps"][1].update(target_index=6, context_indices=[0, 2, 3, 4, 5])
 
@@ -262,21 +230,6 @@ def test_additional_tools_are_required_and_exact(record, change):
         validate_record(json.dumps(record))
 
 
-def test_selected_additional_tools_must_match_context(record):
-    later = copy.deepcopy(record["tools"][0])
-    later[0]["custom"]["description"] = "later"
-    record["tools"].append(later)
-    record["metadata"]["tools_provenance"].append(copy.deepcopy(record["metadata"]["tools_provenance"][0]))
-    record["metadata"]["steps"][1]["tool_context_index"] = 1
-    with pytest.raises(ValueError, match="does not match tool_context_index"):
-        validate_record(json.dumps(record))
-    add_later_input(record)
-    validate_record(json.dumps(record))
-    record["metadata"]["steps"][1]["context_indices"].insert(1, 1)
-    with pytest.raises(ValueError, match="exactly one additional_tools"):
-        validate_record(json.dumps(record))
-
-
 def test_namespace_and_grammar_are_preserved(record):
     tool = record["tools"][0][0]
     tool.update(namespace="functions", namespace_description="Execution tools")
@@ -284,7 +237,11 @@ def test_namespace_and_grammar_are_preserved(record):
     record["messages"][1]["tools"] = [{"type": "namespace", "name": "functions",
         "description": "Execution tools", "tools": [{"type": "custom", **copy.deepcopy(tool["custom"])}]}]
     parsed = validate_record(json.dumps(record))
-    assert parsed.messages[1].tools[0].tools[0].format.definition == 'start: "text(1);"'
+    declaration = parsed.messages[1]
+    assert isinstance(declaration, AdditionalTools)
+    tool_format = declaration.tools[0].tools[0].format
+    assert isinstance(tool_format, GrammarFormat)
+    assert tool_format.definition == 'start: "text(1);"'
     record["messages"][1]["tools"][0]["description"] = "Different namespace description"
     with pytest.raises(ValueError, match="does not match any tool context"):
         validate_record(json.dumps(record))
@@ -293,29 +250,30 @@ def test_namespace_and_grammar_are_preserved(record):
 def test_discovered_descriptions_remain_tool_results(record):
     original_tools = copy.deepcopy(record["tools"])
     original_additional_tools = copy.deepcopy(record["messages"][1])
-    image = {"type": "image_url", "image_url": {"url": "images/result.png"}}
+    image = {"type": "input_image", "image_url": "images/result.png"}
     content = [
-        {"type": "text", "text": '[{"name":"blender_render","description":"Render a scene"}]'},
+        {"type": "input_text", "text": '[{"name":"blender_render","description":"Render a scene"}]'},
         image,
-        {"type": "text", "text": "The second image follows."},
+        {"type": "input_text", "text": "The second image follows."},
         copy.deepcopy(image),
     ]
-    record["messages"][4]["content"] = content
+    record["messages"][4]["output"] = content
     parsed = validate_record(json.dumps(record))
     restored = parsed.model_dump(exclude_unset=True)
     assert restored == record
     assert restored["tools"] == original_tools
     assert restored["messages"][1] == original_additional_tools
-    assert restored["messages"][4]["role"] == "tool"
-    assert restored["messages"][4]["tool_call_id"] == "call_render_1"
-    assert restored["messages"][4]["content"] == content
+    assert restored["messages"][4]["type"] == "custom_tool_call_output"
+    assert "role" not in restored["messages"][4]
+    assert restored["messages"][4]["call_id"] == "call_render_1"
+    assert restored["messages"][4]["output"] == content
 
 
 @pytest.mark.parametrize("change", [
-    lambda r: r["messages"][3]["tool_calls"][0].update(id="call_render_1_duplicate"),
-    lambda r: r["messages"][4].pop("tool_call_id"),
+    lambda r: r["messages"][3].update(call_id="call_render_1_duplicate"),
+    lambda r: r["messages"][4].pop("call_id"),
     lambda r: r["messages"][4].update(role="user"),
-    lambda r: r["messages"][4].update(type="custom_tool_call_output", call_id="call_render_1"),
+    lambda r: r["messages"][4].update(type="function_call_output"),
     lambda r: r["messages"][2]["content"][0].update(type="input_text"),
 ])
 def test_trajectory_fields_and_tool_result_links_are_required(record, change):

@@ -21,7 +21,8 @@ from PIL import Image
 
 from scripts.build_trajectory import image_refs, prompts, resolve_recorded, retry_prompt
 from scripts.export_astra_chat_completions import ArchiveImages, content_parts, read_json
-from tools.validate_trajectory import Trajectory, load_json
+from harness_training.data.contract import Trajectory, load_json
+from harness_training.data.contract import CustomToolCall, FunctionToolCall, ToolOutput, item_images
 
 
 SETTINGS = ("Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction")
@@ -104,10 +105,10 @@ def preserved_messages(row):
         if item.get("type") == "additional_tools":
             continue
         content = item.get("content")
-        if item["role"] == "user" and isinstance(content, str) and content.startswith("<environment_context>\n"):
+        if item.get("role") == "user" and isinstance(content, str) and content.startswith("<environment_context>\n"):
             continue
         payload = {key: value for key, value in item.items() if key != "index"}
-        if payload["role"] == "system":
+        if payload.get("role") == "system":
             payload["role"] = "developer"
         result.append(payload)
     return row["metadata"]["session_id"], result
@@ -244,6 +245,17 @@ def iterative(instance, images, evidence):
     return rows, mappings
 
 
+def native_tool_event(payload, images):
+    """Keep native event fields; only materialize image addresses locally."""
+    fields = {"type", "name", "call_id", "input", "arguments", "output", "id", "status"}
+    item = {key: copy.deepcopy(value) for key, value in payload.items() if key in fields}
+    if "output" in item and isinstance(item["output"], list):
+        for block in item["output"]:
+            if block["type"] == "input_image":
+                block["image_url"] = images.save(block["image_url"])
+    return item
+
+
 def interactive(instance, images, evidence):
     raw, output = instance / "raw", instance / "post_train_trajectory"
     order_path = raw / "session_order.json"
@@ -258,7 +270,7 @@ def interactive(instance, images, evidence):
         path = paths[0]
         seen_paths.add(path)
         records = [load_json(line) for line in path.read_text().splitlines()]
-        messages, origins, excluded, generation_keys, phases = [], [], [], [], []
+        messages, origins, excluded, phases = [], [], [], []
         sources = [evidence.source(order_path, output, "/attempts"), evidence.source(path, output, "/")]
         session_id = None
         for li, record in enumerate(records, 1):
@@ -269,52 +281,36 @@ def interactive(instance, images, evidence):
             if record["type"] == "session_meta":
                 session_id = payload["session_id"]
                 item = message("developer", payload["base_instructions"]["text"])
-                key, phase = None, None
+                phase = None
             elif record["type"] == "world_state":
                 item = environment_message(payload["state"]["environments"])
-                key, phase = None, None
+                phase = None
             elif record["type"] == "response_item":
                 kind = payload["type"]
                 if kind == "reasoning" or payload.get("channel") in {"analysis", "reasoning", "thinking"}:
                     excluded.append({"source": source, "reason": "推理事件仅保留在原始日志，不混入普通 assistant 答案。"})
                     continue
-                meta = payload.get("internal_chat_message_metadata_passthrough", {})
-                key = (meta.get("turn_id"), meta.get("create_time"))
-                if None in key:
-                    key = None
                 phase = payload.get("phase")
                 if kind == "message":
-                    role = "developer" if payload["role"] == "system" else payload["role"]
+                    role = "developer" if payload.get("role") == "system" else payload["role"]
                     item = message(role, content_parts(payload["content"], images))
-                elif kind in {"function_call", "custom_tool_call"}:
-                    call = {"id": payload["call_id"]}
-                    if kind == "custom_tool_call":
-                        call.update(type="custom", custom={"name": payload["name"], "input": payload["input"]})
-                    else:
-                        call.update(type="function", function={"name": payload["name"], "arguments": payload["arguments"]})
-                    if messages and messages[-1]["role"] == "assistant" and key is not None and generation_keys[-1] == key:
-                        messages[-1].setdefault("tool_calls", []).append(call)
-                        origins[-1].append(source)
-                        continue
-                    item = message("assistant", None, tool_calls=[call])
-                elif kind in {"function_call_output", "custom_tool_call_output"}:
-                    item = message("tool", content_parts(payload["output"], images) or "",
-                                   tool_call_id=payload["call_id"])
+                elif kind in {"function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output"}:
+                    item = native_tool_event(payload, images)
                 else:
                     raise ValueError(f"Unsupported response item: {path}:{li}: {kind}")
             else:
                 continue  # Runtime state and event_msg mirrors are not model messages.
             messages.append(item)
             origins.append([source])
-            generation_keys.append(key)
             phases.append(phase)
         if session_id is None:
             raise ValueError(f"No session ID: {path}")
         steps = []
         for index, item in enumerate(messages):
-            if item["role"] != "assistant":
+            is_call = item.get("type") in {"function_call", "custom_tool_call"}
+            if item.get("role") != "assistant" and not is_call:
                 continue
-            if item.get("tool_calls"):
+            if is_call:
                 kind = "tool_call"
             elif phases[index] == "final_answer":
                 kind = "final_reply"
@@ -341,30 +337,25 @@ def audit(rows, stage, instance, evidence, *, local_sources=None):
             raise ValueError("Duplicate session ID")
         session_ids.add(metadata["session_id"])
         stats["messages"] += len(parsed.messages)
-        stats["excluded_events"] += len(metadata["excluded_events"])
         stats["tool_contexts"] += len(row["tools"])
         for s in metadata["steps"]:
             stats[f"steps_{s['target_kind']}_{s['status']}"] += 1
-            stats[f"inputs_{s['input_provenance']}"] += 1
         calls, results = set(), set()
         sources = list(metadata["sources"])
         sources.extend(s["source"] for s in metadata["steps"])
-        sources.extend(e["source"] for e in metadata["excluded_events"])
-        for provenance in metadata["tools_provenance"]:
-            sources.extend(provenance["sources"])
         for source in sources:
             path = (local_sources or {}).get(source["path"], output / source["path"])
             actual = evidence.source(path, output, source["locator"])
             if actual["sha256"] != source["sha256"]:
                 raise ValueError("Source digest mismatch")
-        for item in row["messages"]:
-            calls.update(c["id"] for c in item.get("tool_calls", []))
-            if item["role"] == "tool":
-                results.add(item["tool_call_id"])
-            for block in item["content"] if isinstance(item.get("content"), list) else []:
-                if block["type"] == "image_url":
-                    stats["image_occurrences"] += 1
-                    referenced.add(block["image_url"]["url"])
+        for item in parsed.messages:
+            if isinstance(item, (FunctionToolCall, CustomToolCall)):
+                calls.add(item.call_id)
+            if isinstance(item, ToolOutput):
+                results.add(item.call_id)
+            for relative in item_images(item):
+                stats["image_occurrences"] += 1
+                referenced.add(relative)
         if calls != results:
             raise ValueError(f"Incomplete tool results: {calls ^ results}")
         stats["tool_calls"] += len(calls)

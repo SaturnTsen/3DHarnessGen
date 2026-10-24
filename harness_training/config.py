@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_yaml import parse_yaml_raw_as, to_yaml_str
@@ -23,6 +23,7 @@ class ExperimentConfig(StrictConfig):
 
 
 class DataConfig(StrictConfig):
+    schema_version: Literal[3]
     runs_root: Path
     source_model: str
     instances: list[str] | None
@@ -30,8 +31,7 @@ class DataConfig(StrictConfig):
     test_fraction: float = Field(ge=0, lt=1)
     missing_images: Literal["skip_sample", "error"]
     verify_images: bool
-    accepted_statuses: list[str]
-    strip_plugin_recommendations: bool
+    accepted_statuses: list[Literal["OK", "ERROR", "UNKNOWN"]]
     include_final_reply: bool
 
     @model_validator(mode="after")
@@ -49,7 +49,7 @@ class DataConfig(StrictConfig):
 class TemplateConfig(StrictConfig):
     name: Literal["qwen"]
     enable_thinking: bool
-    tools_path: Path | None
+    custom_tools: dict[Annotated[str, Field(min_length=1)], Annotated[str, Field(min_length=1)]]
     max_length: int = Field(ge=16)
     min_image_pixels: int = Field(ge=1024)
     max_image_pixels: int = Field(ge=1024)
@@ -327,7 +327,7 @@ def load_config(path: str | Path) -> TrainingConfig:
     path = Path(path).expanduser().resolve()
     config = parse_yaml_raw_as(TrainingConfig, path.read_text(encoding="utf-8"))
     for section, field in [(config.experiment, "output_dir"), (config.data, "runs_root"),
-                           (config.model, "path"), (config.template, "tools_path"),
+                           (config.model, "path"),
                            (config.method, "resume_from")]:
         value = getattr(section, field)
         if value is not None:

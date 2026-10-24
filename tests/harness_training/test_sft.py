@@ -48,7 +48,8 @@ def test_backend_arguments_use_explicit_config(config):
     assert trainer_fields == set(signature(SFTTrainer).parameters)
 
 
-def test_small_qwen_sft_save_and_resume(config, processor, tmp_path):
+@pytest.mark.parametrize("scene", ["Single-view", "ActiveVisual"])
+def test_small_qwen_sft_save_and_resume(config, processor, tmp_path, scene):
     """Exercise real model loading, LoRA gradients, backend training and checkpoint restore."""
     import torch
     from transformers import AutoConfig, AutoProcessor, Qwen3_5Config, Qwen3_5ForConditionalGeneration
@@ -84,6 +85,13 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path):
             "learning_rate": .01, "gradient_checkpointing": False, "logging_steps": 1,
             "save_steps": 1, "warmup_ratio": 0, "use_cpu": True,
         })
+        if scene == "ActiveVisual":
+            from test_templates import interactive_record
+
+            config.experiment.scene = scene
+            config.data.runs_root = tmp_path / "agent_runs"
+            for index in range(10):
+                interactive_record(config.data.runs_root, instance=f"Object{index}Factory")
         trainer = Trainer(config)
         model = trainer.model
         metrics = trainer.run()
@@ -104,7 +112,7 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path):
         # Same checkpoint must not silently resume on changed training data.
         source = next(config.data.runs_root.glob("*/gpt-6-astra/*/post_train_trajectory/trajectory.jsonl"))
         row = json.loads(source.read_text())
-        row["conversations"][1]["value"] += "\n# changed"
+        row["messages"][0]["content"] += "\n# changed"
         source.write_text(json.dumps(row))
         with pytest.raises(ValueError, match="changed"):
             Trainer(config).run()

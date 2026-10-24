@@ -101,20 +101,20 @@ def test_split_rejects_invalid_ratios(config):
         DataConfig.model_validate({**config.data.model_dump(), "validation_fraction": .6, "test_fraction": .4})
 
 
-def test_step_selection_uses_source_mapping(tmp_path, config):
+def test_step_selection_uses_explicit_indices(tmp_path, config):
     write_trajectory(tmp_path, failed_first=True)
     cfg = config.data.model_copy(update={"runs_root": tmp_path})
     data = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
-    assert [example.target_index for example in data.train] == [3]
-    assert data.train[0].indices == (2, 3)
-    assert data.train[0].record.images_by_conversation[2][0].name == "reference.png"
+    assert [example.target_index for example in data.train] == [4]
+    assert data.train[0].indices == (0, 3, 4)
+    assert data.train[0].record.images_by_message[3][0].name == "reference.png"
 
 
 def test_missing_image_only_excludes_affected_step(tmp_path, config):
     write_trajectory(tmp_path, missing=True)
     cfg = config.data.model_copy(update={"runs_root": tmp_path})
     data = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
-    assert [example.target_index for example in data.train] == [3]
+    assert [example.target_index for example in data.train] == [4]
     assert len(data.rejected) == 1 and "absent.png" in data.rejected[0]["reason"]
     cfg.missing_images = "error"
     with pytest.raises(DataError, match="absent.png"):
@@ -179,8 +179,31 @@ def test_split_objects_uses_supplied_paths_without_changing_their_order(tmp_path
 def test_bad_image_alignment_is_rejected(tmp_path, config):
     path = write_trajectory(tmp_path)
     row = json.loads(path.read_text())
-    row["images"].pop()
+    row["messages"][1]["content"][1]["image_url"]["url"] = "../outside.png"
     path.write_text(json.dumps(row) + "\n")
     cfg = config.data.model_copy(update={"runs_root": tmp_path})
     data = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
-    assert not data.train and "placeholders" in data.rejected[0]["reason"]
+    assert not data.train and "image URL" in data.rejected[0]["reason"]
+
+
+def test_sessions_share_object_split_and_have_unique_sample_ids(tmp_path, config):
+    path = write_trajectory(tmp_path)
+    first = json.loads(path.read_text())
+    second = json.loads(path.read_text())
+    second["metadata"]["session_id"] = "retry"
+    path.write_text(json.dumps(first) + "\n" + json.dumps(second) + "\n" + json.dumps(first) + "\n")
+    cfg = config.data.model_copy(update={"runs_root": tmp_path})
+    data = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
+    assert len(data.train) == 4
+    assert len({e.id for e in data.train}) == 4
+    assert len(data.assignments) == 1
+    assert len(data.rejected) == 1 and "Duplicate session" in data.rejected[0]["reason"]
+
+
+def test_old_sharegpt_is_rejected(tmp_path, config):
+    path = write_trajectory(tmp_path)
+    path.write_text(json.dumps({"conversations": [], "metadata": {}}))
+    cfg = config.data.model_copy(update={"runs_root": tmp_path})
+    data = TrajectoryDataset(cfg, "Single-view", config.experiment.seed).prepare()
+    assert not data.train
+    assert "schema_version" in data.rejected[0]["reason"]

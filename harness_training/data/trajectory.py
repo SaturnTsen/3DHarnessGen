@@ -4,12 +4,11 @@ import hashlib
 from pathlib import Path
 from random import Random
 from typing import Literal
-from pydantic import TypeAdapter, ValidationError
-
-from harness_training.types import SourceMapping, TrajectoryRow
 
 from harness_training.config import DataConfig, Scene
+from .contract import Trajectory, item_images, validate_record
 from .base import BaseDataset, DatasetBundle, TrainingExample, TrajectoryRecord
+
 
 class DataError(ValueError):
     pass
@@ -34,7 +33,6 @@ def validate_image(path: Path, decode: bool) -> str | None:
 class TrajectoryDataset(BaseDataset):
     def __init__(self, config: DataConfig, scene: Scene, seed: int):
         self.config, self.scene, self.seed = config, scene, seed
-        self._adapter = TypeAdapter(TrajectoryRow)
         self._image_errors: dict[Path, str | None] = {}
 
     def prepare(self) -> DatasetBundle:
@@ -51,18 +49,22 @@ class TrajectoryDataset(BaseDataset):
             raise DataError(f"No trajectory.jsonl files found under {root}")
         assignments = self._split_objects(paths)
         for path in paths:
+            sessions: set[str] = set()
             instance = path.parent.parent.name
             split = assignments[instance]
             bundle.assignments[instance] = split
             payload = path.read_bytes()
-            bundle.source_hashes[str(path)] = hashlib.sha256(payload).hexdigest() # 文件内容的hash，用于后续任务恢复的校验
+            bundle.source_hashes[str(path)] = hashlib.sha256(payload).hexdigest()
+            if not payload:
+                bundle.rejected.append({"path": str(path), "reason": "Empty trajectory file"})
             for line_number, line in enumerate(payload.decode("utf-8").splitlines(), 1):
-                if not line.strip():
-                    continue
                 try:
-                    record = self._read_record(path, line_number, instance, self._adapter.validate_json(line, strict=True))
+                    record = self._read_record(path, line_number, instance, validate_record(line))
+                    if record.row.metadata.session_id in sessions:
+                        raise DataError("Duplicate session_id within object")
+                    sessions.add(record.row.metadata.session_id)
                     examples = self._select(record)
-                except (DataError, ValidationError, KeyError, TypeError) as exc:
+                except ValueError as exc:
                     bundle.rejected.append({"path": str(path), "line": line_number, "reason": str(exc)})
                     continue
                 for example in examples:
@@ -88,83 +90,27 @@ class TrajectoryDataset(BaseDataset):
         assignments.update({path.parent.parent.name: "test" for path in shuffled_paths[:test_end]})
         return assignments
 
-    def _read_record(self, path: Path, line: int, instance: str, row: TrajectoryRow) -> TrajectoryRecord:
-        metadata = row["metadata"]
-        if metadata.get("benchmark", self.scene) != self.scene or metadata.get("instance", instance) != instance:
+    def _read_record(self, path: Path, line: int, instance: str, row: Trajectory) -> TrajectoryRecord:
+        if row.metadata.scene != self.scene or row.metadata.instance != instance:
             raise DataError("Scene or instance metadata does not match input path")
-        images = row.get("images", [])
-        image_index = 0
-        bindings: list[tuple[Path, ...]] = []
-        for conversation in row["conversations"]:
-            value = conversation["value"]
-            count = value.count("<image>")
-            bindings.append(tuple((path.parent / p).resolve() for p in images[image_index:image_index + count]))
-            image_index += count
-        if image_index != len(images):
-            raise DataError("Image placeholders do not match the images list")
-        return TrajectoryRecord(path, line, instance, row, tuple(bindings))
-
-    @staticmethod
-    def _mapping(record: TrajectoryRecord) -> list[SourceMapping]:
-        mapping = record.row["metadata"]["sharegpt_conversion"]["conversation_source_mapping"]
-        if len(mapping) != len(record.row["conversations"]):
-            raise DataError("Missing or inconsistent ShareGPT source mapping; cannot select original steps safely")
-        return mapping
+        bindings = tuple(tuple((path.parent / image).resolve() for image in item_images(item))
+                         for item in row.messages)
+        return TrajectoryRecord(path, line, instance, row, bindings)
 
     def _select(self, record: TrajectoryRecord) -> list[TrainingExample]:
-        conversations = record.row["conversations"]
-        metadata = record.row.get("metadata", {})
-        mapping = self._mapping(record)
-        examples: list[TrainingExample] = []
-        if self.scene in {"Single-view", "Multi-view"}:
-            for step in metadata.get("steps", []):
-                if step.get("status") not in self.config.accepted_statuses:
-                    continue
-                start, end = step["message_start"], step["message_end"]
-                selected = tuple(i for i, m in enumerate(mapping)
-                                 if m["source_message_indices"] and all(start <= n < end for n in m["source_message_indices"]))
-                if len(selected) != 2 or [conversations[i]["from"] for i in selected] != ["human", "gpt"]:
-                    raise DataError("An iterative step must map to one human request and one assistant script")
-                if conversations[selected[-1]]["value"].strip():
-                    examples.append(TrainingExample(record, selected, selected[-1]))
-        else:
-            chains = metadata.get("chains", [])
-            if not chains:
-                raise DataError("Interactive trajectories require explicit chain boundaries")
-            for chain in chains:
-                start, end = chain["message_start"], chain["message_end"]
-                indices = [i for i, m in enumerate(mapping) if m["source_message_indices"] and
-                           all(start <= n < end for n in m["source_message_indices"])]
-                for m in mapping:
-                    membership = [start <= n < end for n in m["source_message_indices"]]
-                    if any(membership) and not all(membership):
-                        raise DataError("ShareGPT conversion merged messages across independent chains")
-                if not indices or conversations[indices[0]]["from"] != "human":
-                    raise DataError("Each interactive chain must start with its own human request")
-                assistant_indices = [i for i in indices if conversations[i]["from"] in {"gpt", "function_call"}
-                                     and conversations[i]["value"].strip()]
-                final = assistant_indices[-1] if assistant_indices else None
-                for index in assistant_indices:
-                    is_call = conversations[index]["from"] == "function_call" or bool(mapping[index].get("tool_call_ids"))
-                    if is_call or (self.config.include_final_reply and index == final):
-                        prefix = tuple(i for i in indices if i <= index)
-                        examples.append(TrainingExample(record, prefix, index))
-        return examples
+        return [TrainingExample(record, tuple(step.context_indices) + (step.target_index,),
+                                step.target_index, step.id)
+                for step in record.row.metadata.steps
+                if step.status in self.config.accepted_statuses
+                and (step.target_kind != "final_reply" or self.config.include_final_reply)]
 
     def _example_errors(self, example: TrainingExample) -> list[str]:
         errors: list[str] = []
-        if example.record.row.get("metadata", {}).get("images_complete") is False:
-            errors.append("Exporter reports incomplete visual context")
         for index in example.indices:
-            value = example.record.row["conversations"][index]["value"]
-            if "[Image unavailable:" in value or "[REDACTED_IMAGE" in value:
-                errors.append("Unrecoverable image placeholder in selected context")
-            for path in example.record.images_by_conversation[index]:
+            for path in example.record.images_by_message[index]:
                 if path not in self._image_errors:
                     self._image_errors[path] = validate_image(path, self.config.verify_images)
                 error = self._image_errors[path]
                 if error is not None:
                     errors.append(error)
-        if example.record.images_by_conversation[example.target_index]:
-            errors.append("Image-generation targets are not supported by this SFT task")
         return list(dict.fromkeys(errors))

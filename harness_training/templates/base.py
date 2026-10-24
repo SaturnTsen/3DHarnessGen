@@ -29,7 +29,7 @@ class BaseTemplate(ABC):
 
     @abstractmethod
     def render(self, example: TrainingExample) -> RenderedExample:
-        """Convert existing ShareGPT to the target model's chat format."""
+        """Convert existing v3 to the target model's chat format."""
 
     @abstractmethod
     def encode(self, example: TrainingExample) -> TensorInputs:
