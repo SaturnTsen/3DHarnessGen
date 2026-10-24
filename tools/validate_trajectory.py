@@ -1,17 +1,36 @@
-"""Validate the messages-based trajectory contract without loading models."""
+"""Validate the project's v3 post_train_trajectory JSON/JSONL contract.
+
+Messages use role/content, assistant tool_calls and tool tool_call_id.
+Additional tool definitions are checked against each step's tool context.
+Tool discovery descriptions remain in tool results, with image order preserved.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 from pydantic_yaml import parse_yaml_raw_as
 
+def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
 
-class ContractModel(BaseModel):
+def reject_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant: {value}")
+
+def load_json(raw: str) -> object:
+    return json.loads(raw, object_pairs_hook=unique_object, parse_constant=reject_constant)
+
+
+class BaseModelStrict(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
@@ -19,12 +38,15 @@ Nonempty = Annotated[str, Field(min_length=1)]
 Index = Annotated[int, Field(ge=0)]
 
 
-class TextBlock(ContractModel):
+# ----------------------- messages：消息与内容 -----------------------
+
+
+class TextBlock(BaseModelStrict):
     type: Literal["text"]
     text: str
 
 
-class ImageURL(ContractModel):
+class ImageURL(BaseModelStrict):
     url: Nonempty
     detail: Literal["auto", "low", "high"] | None = None
 
@@ -37,7 +59,7 @@ class ImageURL(ContractModel):
         return value
 
 
-class ImageBlock(ContractModel):
+class ImageBlock(BaseModelStrict):
     type: Literal["image_url"]
     image_url: ImageURL
 
@@ -45,39 +67,37 @@ class ImageBlock(ContractModel):
 ContentBlock = Annotated[TextBlock | ImageBlock, Field(discriminator="type")]
 
 
-class FunctionCall(ContractModel):
-    name: Nonempty
-    arguments: str
+class FunctionToolCall(BaseModelStrict):
+    class Function(BaseModelStrict):
+        name: Nonempty
+        arguments: str
 
-    @field_validator("arguments")
-    @classmethod
-    def object_arguments(cls, value: str) -> str:
-        if not isinstance(load_json(value), dict):
-            raise ValueError("function arguments must encode a JSON object")
-        return value
+        @field_validator("arguments")
+        @classmethod
+        def object_arguments(cls, value: str) -> str:
+            if not isinstance(load_json(value), dict):
+                raise ValueError("function arguments must encode a JSON object")
+            return value
 
-
-class CustomCall(ContractModel):
-    name: Nonempty
-    input: str
-
-
-class FunctionToolCall(ContractModel):
     id: Nonempty
     type: Literal["function"]
-    function: FunctionCall
+    function: Function
 
 
-class CustomToolCall(ContractModel):
+class CustomToolCall(BaseModelStrict):
+    class Custom(BaseModelStrict):
+        name: Nonempty
+        input: str
+
     id: Nonempty
     type: Literal["custom"]
-    custom: CustomCall
+    custom: Custom
 
 
 ToolCall = Annotated[FunctionToolCall | CustomToolCall, Field(discriminator="type")]
 
 
-class Message(ContractModel):
+class Message(BaseModelStrict):
     index: Index
     role: Literal["system", "developer", "user", "assistant", "tool"]
     content: str | list[ContentBlock] | None
@@ -98,57 +118,139 @@ class Message(ContractModel):
         return self
 
 
-class FunctionDefinition(ContractModel):
-    name: Nonempty
-    description: str
-    parameters: dict[str, JsonValue]
-    strict: bool | None = None
+class AdditionalTools(BaseModelStrict):
+    index: Index
+    type: Literal["additional_tools"]
+    role: Literal["developer"]
+    tools: list[ToolDefinition] = Field(min_length=1)
 
-    @field_validator("parameters")
+    @field_validator("tools")
     @classmethod
-    def object_schema(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
-        if value.get("type") != "object":
-            raise ValueError("function parameters must declare type: object")
+    def definitions(cls, value: list[ToolDefinition]) -> list[ToolDefinition]:
+        for definition in value:
+            if definition.type is None:
+                raise ValueError("additional tool definition requires type")
+            definition.check_kind(definition.type)
         return value
 
+    def tool_context(self) -> list[Tool]:
+        result: list[Tool] = []
+        for item in self.tools:
+            namespace = (
+                {"namespace": item.name, "namespace_description": item.description}
+                if item.type == "namespace" else {}
+            )
+            definitions = item.tools if item.type == "namespace" else [item]
+            for definition in cast(list[ToolDefinition], definitions):
+                payload = definition.model_dump(exclude={"type"}, exclude_unset=True)
+                result.append(Tool.model_validate({
+                    "type": definition.type, definition.type: payload, **namespace,
+                }))
+        tool_names(result)
+        return result
 
-class TextFormat(ContractModel):
+
+TrajectoryItem = AdditionalTools | Message
+
+
+# ----------------------- tools：工具定义与上下文 -----------------------
+
+
+class TextFormat(BaseModelStrict):
     type: Literal["text"]
 
 
-class GrammarFormat(ContractModel):
+class GrammarFormat(BaseModelStrict):
     type: Literal["grammar"]
     syntax: Literal["lark", "regex"]
     definition: Nonempty
 
 
-class CustomDefinition(ContractModel):
+class ToolDefinition(BaseModelStrict):
     name: Nonempty
     description: str
-    format: Annotated[TextFormat | GrammarFormat, Field(discriminator="type")]
+    type: Literal["function", "custom", "namespace"] | None = None
+    parameters: dict[str, JsonValue] | None = None
+    strict: bool | None = None
+    format: TextFormat | GrammarFormat | None = Field(default=None, discriminator="type")
+    tools: list[ToolDefinition] | None = None
+
+    @field_validator("parameters")
+    @classmethod
+    def object_schema(cls, value: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+        if value is not None and value.get("type") != "object":
+            raise ValueError("function parameters must declare type: object")
+        return value
+
+    def check_kind(self, kind: str) -> None:
+        common = {"type", "name", "description"}
+        if kind == "function":
+            allowed = common | {"parameters", "strict"}
+            if self.parameters is None:
+                raise ValueError("function definition requires parameters")
+        elif kind == "custom":
+            allowed = common | {"format"}
+            if self.format is None:
+                raise ValueError("custom definition requires format")
+        elif kind == "namespace":
+            allowed = common | {"tools"}
+            if not self.tools:
+                raise ValueError("namespace definition requires nonempty tools")
+            for tool in self.tools:
+                if tool.type not in {"function", "custom"}:
+                    raise ValueError("namespace members must declare function or custom type")
+                tool.check_kind(tool.type)
+        else:
+            raise ValueError(f"unsupported tool definition type: {kind}")
+        if self.model_fields_set - allowed:
+            raise ValueError(f"unexpected fields for {kind} definition")
+        if "type" in self.model_fields_set and self.type != kind:
+            raise ValueError("definition type does not match its tool")
 
 
-class FunctionTool(ContractModel):
+class Tool(BaseModelStrict):
     index: Index | None = None
     namespace: Nonempty | None = None
     namespace_description: str | None = None
-    type: Literal["function"]
-    function: FunctionDefinition
+    type: Literal["function", "custom"]
+    function: ToolDefinition | None = None
+    custom: ToolDefinition | None = None
+
+    @model_validator(mode="after")
+    def definition_fields(self) -> Self:
+        definition = self.function if self.type == "function" else self.custom
+        other = "custom" if self.type == "function" else "function"
+        if definition is None or other in self.model_fields_set:
+            raise ValueError("tool must contain only its matching definition")
+        definition.check_kind(self.type)
+        return self
+
+    @property
+    def definition(self) -> ToolDefinition:
+        return cast(ToolDefinition, self.function if self.type == "function" else self.custom)
 
 
-class CustomTool(ContractModel):
-    index: Index | None = None
-    namespace: Nonempty | None = None
-    namespace_description: str | None = None
-    type: Literal["custom"]
-    custom: CustomDefinition
-
-
-Tool = Annotated[FunctionTool | CustomTool, Field(discriminator="type")]
 ToolContext = list[Tool]
 
 
-class Source(ContractModel):
+def tool_names(tools: list[Tool]) -> dict[str, str]:
+    result = {}
+    for tool in tools:
+        name = tool.definition.name
+        if name in result:
+            raise ValueError(f"duplicate tool name: {name}")
+        result[name] = tool.type
+    return result
+
+
+def context_payload(context: list[Tool]) -> list[dict]:
+    return [tool.model_dump(exclude={"index"}) for tool in context]
+
+
+# ----------------------- metadata：来源与训练步骤 -----------------------
+
+
+class Source(BaseModelStrict):
     path: Nonempty
     sha256: Annotated[str, Field(pattern=r"^[0-9a-fA-F]{64}$")]
     locator: Nonempty
@@ -161,15 +263,15 @@ class Source(ContractModel):
         return value
 
 
-class ToolsProvenance(ContractModel):
+class ToolsProvenance(BaseModelStrict):
     status: Literal["recorded", "recovered"]
     sources: Annotated[list[Source], Field(min_length=1)]
 
 
-class Step(ContractModel):
+class Step(BaseModelStrict):
     id: Nonempty
     context_indices: list[Index]
-    tool_context_index: Index
+    tool_context_index: Index | None
     target_index: Index
     target_kind: Literal["script", "tool_call", "final_reply", "status"]
     status: Literal["OK", "ERROR", "UNKNOWN"]
@@ -185,37 +287,30 @@ class Step(ContractModel):
         return self
 
 
-class ExcludedEvent(ContractModel):
+class ExcludedEvent(BaseModelStrict):
     source: Source
     reason: Nonempty
 
 
-class Metadata(ContractModel):
+class Metadata(BaseModelStrict):
     scene: Literal["Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction"]
     instance: Nonempty
     session_id: Nonempty
     view: Literal["script", "agent"]
     sources: list[Source]
-    tools_provenance: Annotated[list[ToolsProvenance], Field(min_length=1)]
+    tools_provenance: list[ToolsProvenance]
     steps: list[Step]
     excluded_events: list[ExcludedEvent]
 
 
-def tool_names(tools: list[Tool]) -> dict[str, str]:
-    result = {}
-    for tool in tools:
-        name = tool.function.name if isinstance(tool, FunctionTool) else tool.custom.name
-        if name in result:
-            raise ValueError(f"duplicate tool name: {name}")
-        result[name] = tool.type
-    return result
+# ----------------------- Trajectory：完整轨迹与校验入口 -----------------------
 
 
-class Trajectory(ContractModel):
-    schema_version: Literal[2]
+class Trajectory(BaseModelStrict):
+    schema_version: Literal[3]
     model: Nonempty
-    messages: Annotated[list[Message], Field(min_length=1)]
-    tools: Annotated[list[ToolContext], Field(min_length=1)]
+    messages: Annotated[list[TrajectoryItem], Field(min_length=1)]
+    tools: list[ToolContext]
     metadata: Metadata
 
     @field_validator("schema_version", mode="before")
@@ -227,6 +322,18 @@ class Trajectory(ContractModel):
 
     @model_validator(mode="after")
     def relationships(self) -> Self:
+        script = self.metadata.scene in {"Single-view", "Multi-view"}
+        if self.metadata.view != ("script" if script else "agent"):
+            raise ValueError("metadata.view does not match scene")
+        if script:
+            if self.tools or self.metadata.tools_provenance or any(
+                isinstance(item, AdditionalTools)
+                or isinstance(item, Message) and (item.tool_calls or item.role == "tool")
+                for item in self.messages
+            ):
+                raise ValueError("script view must omit Codex tools and tool events")
+        elif not self.tools:
+            raise ValueError("agent view requires nonempty tool contexts")
         if len(self.metadata.tools_provenance) != len(self.tools):
             raise ValueError("tools_provenance must have one entry per tool context")
         for context_index, context in enumerate(self.tools):
@@ -236,22 +343,28 @@ class Trajectory(ContractModel):
             if any(tool.index is not None for tool in context):
                 if any(tool.index != index for index, tool in enumerate(context)):
                     raise ValueError(f"tools[{context_index}]: tool index must equal its context array position")
-        script = self.metadata.scene in {"Single-view", "Multi-view"}
-        if self.metadata.view != ("script" if script else "agent"):
-            raise ValueError("metadata.view does not match scene")
-        calls: set[str] = set()
+        calls: dict[str, str] = {}
         results: set[str] = set()
+        additional_contexts: dict[int, list[dict]] = {}
         for index, message in enumerate(self.messages):
             if message.index != index:
                 raise ValueError(f"messages[{index}].index must equal {index}")
-            for call in message.tool_calls or []:
-                if call.id in calls:
-                    raise ValueError(f"messages[{index}]: duplicate call ID {call.id}")
-                calls.add(call.id)
-            if message.tool_call_id is not None:
-                if message.tool_call_id not in calls or message.tool_call_id in results:
-                    raise ValueError(f"messages[{index}]: missing earlier call or duplicate result")
-                results.add(message.tool_call_id)
+            if not script and isinstance(message, Message) and message.role == "system":
+                raise ValueError("agent instructions must retain the recorded developer role")
+            if isinstance(message, AdditionalTools):
+                payload = context_payload(message.tool_context())
+                if payload not in [context_payload(context) for context in self.tools]:
+                    raise ValueError(f"messages[{index}]: additional_tools does not match any tool context")
+                additional_contexts[index] = payload
+            if isinstance(message, Message):
+                for call in message.tool_calls or []:
+                    if call.id in calls:
+                        raise ValueError(f"messages[{index}]: duplicate call ID {call.id}")
+                    calls[call.id] = call.type
+                if message.tool_call_id is not None:
+                    if message.tool_call_id not in calls or message.tool_call_id in results:
+                        raise ValueError(f"messages[{index}]: missing earlier call or duplicate result")
+                    results.add(message.tool_call_id)
         step_ids: set[str] = set()
         targets: set[int] = set()
         for step in self.metadata.steps:
@@ -262,43 +375,37 @@ class Trajectory(ContractModel):
             if step.target_index >= len(self.messages):
                 raise ValueError(f"step {step.id}: target_index is outside messages")
             target = self.messages[step.target_index]
-            if target.role != "assistant":
+            if not isinstance(target, Message) or target.role != "assistant":
                 raise ValueError(f"step {step.id}: target must be assistant")
             if (step.target_kind == "tool_call") != bool(target.tool_calls):
                 raise ValueError(f"step {step.id}: target_kind does not match tool_calls")
             if script and step.target_kind != "script":
                 raise ValueError(f"step {step.id}: script view requires script targets")
-            if step.tool_context_index >= len(self.tools):
+            if script:
+                if step.tool_context_index is not None:
+                    raise ValueError(f"step {step.id}: script tool_context_index must be null")
+                continue
+            if step.tool_context_index is None or step.tool_context_index >= len(self.tools):
                 raise ValueError(f"step {step.id}: tool_context_index is outside tools")
             names = tool_names(self.tools[step.tool_context_index])
             for call in target.tool_calls or []:
                 name = call.function.name if isinstance(call, FunctionToolCall) else call.custom.name
                 if names.get(name) != call.type:
                     raise ValueError(f"step {step.id}: tool {name} is unavailable or has the wrong type")
+            visible_tools = [additional_contexts[index] for index in step.context_indices if index in additional_contexts]
+            if len(visible_tools) != 1:
+                raise ValueError(f"step {step.id}: context requires exactly one additional_tools item")
+            if visible_tools[0] != context_payload(self.tools[step.tool_context_index]):
+                raise ValueError(f"step {step.id}: additional_tools does not match tool_context_index")
             visible_calls: set[str] = set()
             for index in step.context_indices:
                 message = self.messages[index]
-                visible_calls.update(call.id for call in message.tool_calls or [])
-                if message.tool_call_id is not None and message.tool_call_id not in visible_calls:
-                    raise ValueError(f"step {step.id}: tool result has no call in visible context")
+                if isinstance(message, Message):
+                    visible_calls.update(call.id for call in message.tool_calls or [])
+                    if message.tool_call_id is not None and message.tool_call_id not in visible_calls:
+                        raise ValueError(f"step {step.id}: tool result has no call in visible context")
         return self
 
-
-def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON key: {key}")
-        result[key] = value
-    return result
-
-
-def reject_constant(value: str) -> None:
-    raise ValueError(f"invalid JSON constant: {value}")
-
-
-def load_json(raw: str) -> object:
-    return json.loads(raw, object_pairs_hook=unique_object, parse_constant=reject_constant)
 
 
 def validate_record(raw: str) -> Trajectory:
@@ -308,7 +415,7 @@ def validate_record(raw: str) -> Trajectory:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="检查轨迹 JSON / JSONL 的字段及消息关联，不加载模型。")
+    parser = argparse.ArgumentParser(description="检查 v3 轨迹 JSON / JSONL 的字段与消息、工具事件关联，不加载模型。")
     parser.add_argument("path", type=Path)
     args = parser.parse_args()
     if args.path.suffix.lower() not in {".json", ".jsonl"}:

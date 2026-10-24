@@ -1,6 +1,6 @@
 # Qwen Agent 后训练最小改动计划
 
-进度更新：已提供契约 v2 的独立格式校验器 `tools/validate_trajectory.py`，入口为 `pixi run validate-trajectory 文件路径`。下面的训练读取器、工具适配和服务改造仍未实施。
+进度更新：已提供契约 v3 的独立格式校验器 `tools/validate_trajectory.py`，入口为 `pixi run validate-trajectory 文件路径`。下面的训练读取器、工具适配和服务改造仍未实施。
 
 状态：开发计划，尚未实施。结论见 [参考报告](POST_TRAINING_REFERENCE_REPORT.md)，数据接口见 [交付规范](POST_TRAIN_TRAJECTORY_CONTRACT.md)。目标是接通现有 messages 轨迹、TRL 训练与 vLLM 服务协议，保留当前分层和训练入口。
 

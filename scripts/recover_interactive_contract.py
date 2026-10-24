@@ -14,39 +14,21 @@ import tempfile
 from pathlib import Path
 
 from scripts.export_astra_chat_completions import ArchiveImages
-from scripts.rebuild_astra_contract import Evidence, audit, interactive, step
+from scripts.rebuild_astra_contract import Evidence, attach_additional_tools, audit, indexed_tools, interactive, step
 from tools.validate_trajectory import Trajectory
-
-
-def indexed_tools(namespaces):
-    """Preserve namespace and original freeform grammar in a flat indexed pool."""
-    tools = []
-    for namespace in namespaces:
-        if namespace["type"] != "namespace":
-            raise ValueError("Expected a recorded namespace tool specification")
-        for spec in namespace["tools"]:
-            kind = spec["type"]
-            if kind not in {"custom", "function"}:
-                raise ValueError(f"Unsupported tool specification: {kind}")
-            definition = {key: value for key, value in spec.items() if key != "type"}
-            tools.append({"index": len(tools), "namespace": namespace["name"],
-                          "namespace_description": namespace["description"],
-                          "type": kind, kind: definition})
-    return tools
 
 
 def recover(row, mapping, context, source):
     if not context["recovery"]["static_tool_context"]:
         raise ValueError("Changing tool contexts require per-request snapshots")
-    row["tools"] = indexed_tools(context["tools"])
+    row["schema_version"] = 3
+    row["tools"] = [indexed_tools(context["tools"])]
     metadata = row["metadata"]
-    metadata["tools_provenance"] = {"status": "recovered", "sources": [source]}
+    metadata["tools_provenance"] = [{"status": "recovered", "sources": [source]}]
     metadata["sources"].append(source)
     metadata["excluded_events"] = [event for event in metadata["excluded_events"]
                                    if "推理事件" in event["reason"]]
     metadata["steps"] = []
-    exec_index = next(tool["index"] for tool in row["tools"]
-                      if tool["type"] == "custom" and tool["custom"]["name"] == "exec")
     for message in row["messages"]:
         if message["role"] != "assistant":
             continue
@@ -58,9 +40,8 @@ def recover(row, mapping, context, source):
             kind = "final_reply"
         target = step(index, kind, mapping["message_sources"][index][0],
                       context=list(range(index)), provenance="reconstructed", status="UNKNOWN")
-        target["available_tool_indices"] = list(range(len(row["tools"])))
-        target["tool_context_index"] = exec_index
         metadata["steps"].append(target)
+    attach_additional_tools(row, mapping, context["tools"])
     Trajectory.model_validate(row)
     mapping.update(tool_definitions="recovered", request_boundaries="reconstructed")
     return row

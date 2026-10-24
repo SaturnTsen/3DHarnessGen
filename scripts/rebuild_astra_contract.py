@@ -8,6 +8,7 @@ read only; replaced delivery directories are backed up under project temp/.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -49,22 +50,112 @@ def message(role, content, **fields):
 
 def step(target, kind, source, *, context, provenance, status):
     return {"id": f"step_{target}", "context_indices": context,
-            "tool_context_index": None,
+            "tool_context_index": None if kind == "script" else 0,
             "target_index": target, "target_kind": kind, "status": status,
-            "input_provenance": provenance, "available_tools": None,
-            "tools_provenance": None, "source": source}
+            "input_provenance": provenance, "source": source}
+
+
+def indexed_tools(namespaces):
+    tools = []
+    for namespace in namespaces:
+        if namespace["type"] != "namespace":
+            raise ValueError("Expected a recovered namespace tool specification")
+        for spec in namespace["tools"]:
+            kind = spec["type"]
+            if kind not in {"custom", "function"}:
+                raise ValueError(f"Unsupported tool specification: {kind}")
+            definition = {key: value for key, value in spec.items() if key != "type"}
+            tools.append({"index": len(tools), "namespace": namespace["name"],
+                          "namespace_description": namespace["description"],
+                          "type": kind, kind: definition})
+    return tools
+
+
+def attach_additional_tools(row, mapping, namespaces):
+    """Archive the native HTTP input and shift every dependent message index."""
+    row["messages"].insert(0, {"type": "additional_tools", "role": "developer",
+                               "tools": copy.deepcopy(namespaces)})
+    for index, item in enumerate(row["messages"]):
+        item["index"] = index
+    for target in row["metadata"]["steps"]:
+        target["context_indices"] = [0, *[index + 1 for index in target["context_indices"]]]
+        target["target_index"] += 1
+        target["id"] = f"step_{target['target_index']}"
+    if "message_sources" in mapping:
+        mapping["message_sources"].insert(0, copy.deepcopy(row["metadata"]["tools_provenance"][0]["sources"]))
+
+
+def environment_message(state):
+    """Render the recorded single local environment without resolving old paths."""
+    if set(state["environments"]) != {"local"}:
+        raise ValueError("Environment rendering requires exactly one recorded local environment")
+    environment = state["environments"]["local"]
+    fields = [("cwd", environment["cwd"]), ("shell", environment["shell"]),
+              ("current_date", state["current_date"]), ("timezone", state["timezone"])]
+    lines = ["<environment_context>", *[f"  <{key}>{value}</{key}>" for key, value in fields],
+             f"  {state['filesystem']}", "</environment_context>"]
+    return message("user", "\n".join(lines))
+
+
+def preserved_messages(row):
+    """Compare legacy payloads while allowing the three explicit input repairs."""
+    result = []
+    for item in row["messages"]:
+        if item.get("type") == "additional_tools":
+            continue
+        content = item.get("content")
+        if item["role"] == "user" and isinstance(content, str) and content.startswith("<environment_context>\n"):
+            continue
+        payload = {key: value for key, value in item.items() if key != "index"}
+        if payload["role"] == "system":
+            payload["role"] = "developer"
+        result.append(payload)
+    return row["metadata"]["session_id"], result
+
+
+def runtime_sources(path, output, evidence, context):
+    meta, turns = None, []
+    names = {tool[tool["type"]]["name"] for tool in indexed_tools(context["tools"])}
+    for li, line in enumerate(path.open(encoding="utf-8"), 1):
+        record = load_json(line)
+        if record["type"] == "compacted":
+            raise ValueError(f"Compacted runtime requires explicit recovery: {path}:{li}")
+        if record["type"] == "session_meta":
+            meta = record["payload"]
+        if record["type"] == "turn_context":
+            turns.append((li, record["payload"]))
+        if record["type"] == "response_item":
+            payload = record["payload"]
+            if payload["type"] in {"custom_tool_call", "function_call"}:
+                if payload["name"] not in names:
+                    raise ValueError(f"Recovered context lacks runtime tool: {path}:{li}")
+                code = payload.get("input", payload.get("arguments", ""))
+                if ".tool_search(" in code or ".search_tool(" in code:
+                    raise ValueError(f"Tool search requires per-request snapshots: {path}:{li}")
+    if meta is None or len(turns) != 1:
+        raise ValueError(f"Expected one fresh runtime turn: {path}")
+    li, turn = turns[0]
+    expected = context["recovery"]["runtime"]
+    actual = {"cli_version": meta["cli_version"], "model": turn["model"],
+              "approval_policy": turn["approval_policy"],
+              "sandbox_policy": turn["sandbox_policy"], "effort": turn["effort"]}
+    if actual != expected or not context["recovery"]["static_tool_context"]:
+        raise ValueError(f"Runtime does not match the recovered tool context: {path}")
+    return meta["session_id"], [evidence.source(path, output, "line:1"),
+                                evidence.source(path, output, f"line:{li}")]
 
 
 def trajectory(instance, session_id, messages, sources, steps, excluded, *, script):
     for index, item in enumerate(messages):
         item["index"] = index
-    return {"schema_version": 1, "model": "gpt-6-astra", "messages": messages,
+    # Script tasks expose task instructions and images, without Codex tools.
+    # Agent builders require attaching their evidenced runtime tool context.
+    return {"schema_version": 3, "model": "gpt-6-astra", "messages": messages,
             "tools": [] if script else None,
             "metadata": {"scene": instance.parent.parent.name,
                          "instance": instance.name, "session_id": session_id,
                          "view": "script" if script else "agent", "sources": sources,
-                         "tools_provenance": {"status": "not_applicable" if script else "unknown",
-                                              "sources": []},
+                         "tools_provenance": [],
                          "steps": steps, "excluded_events": excluded}}
 
 
@@ -131,7 +222,7 @@ def iterative(instance, images, evidence):
             if len(thread_ids) != 1:
                 raise ValueError(f"Expected one independent session: {response_path}")
             status = "OK" if attempt["status"] == "OK" else "ERROR"
-            messages = [message("system", prompt.rstrip()), message("user", blocks), message("assistant", text)]
+            messages = [message("user", prompt.rstrip()), message("user", blocks), message("assistant", text)]
             rows.append(trajectory(instance, thread_ids[0], messages, sources,
                                    [step(2, "script", sources[0], context=[0, 1],
                                          provenance="reconstructed", status=status)], excluded, script=True))
@@ -177,7 +268,10 @@ def interactive(instance, images, evidence):
                 raise ValueError(f"Compaction requires explicit context recovery: {path}:{li}")
             if record["type"] == "session_meta":
                 session_id = payload["session_id"]
-                item = message("system", payload["base_instructions"]["text"])
+                item = message("developer", payload["base_instructions"]["text"])
+                key, phase = None, None
+            elif record["type"] == "world_state":
+                item = environment_message(payload["state"]["environments"])
                 key, phase = None, None
             elif record["type"] == "response_item":
                 kind = payload["type"]
@@ -190,7 +284,8 @@ def interactive(instance, images, evidence):
                     key = None
                 phase = payload.get("phase")
                 if kind == "message":
-                    item = message(payload["role"], content_parts(payload["content"], images))
+                    role = "developer" if payload["role"] == "system" else payload["role"]
+                    item = message(role, content_parts(payload["content"], images))
                 elif kind in {"function_call", "custom_tool_call"}:
                     call = {"id": payload["call_id"]}
                     if kind == "custom_tool_call":
@@ -224,18 +319,12 @@ def interactive(instance, images, evidence):
             elif phases[index] == "final_answer":
                 kind = "final_reply"
             else:
-                excluded.append({"source": origins[index][0],
-                                 "reason": "独立 commentary 消息按原文保留；没有可靠的纯状态目标分类，不提供训练 step。"})
-                continue
-            # A rollout records emitted items, not complete per-request inputs.
-            # [] makes no unsupported claim about a visible prefix. Unknown
-            # inputs and unknown tool definitions make these audit-only steps.
-            steps.append(step(index, kind, origins[index][0], context=[], provenance="unknown", status="UNKNOWN"))
-        excluded.append({"source": sources[1],
-                         "reason": "未归档完整顶层工具定义、exec 内部初始接口说明及逐次模型请求输入；tools=null，step.input_provenance=unknown；context_indices=[] 表示未确认任何上下文索引，仅供审计，禁止训练。"})
+                kind = "status"
+            steps.append(step(index, kind, origins[index][0], context=list(range(index)),
+                              provenance="reconstructed", status="UNKNOWN"))
         rows.append(trajectory(instance, session_id, messages, sources, steps, excluded, script=False))
         mappings.append({"session_id": session_id, "message_sources": origins,
-                         "tool_definitions": "unknown", "request_boundaries": "unknown"})
+                         "tool_definitions": "pending_recovery", "request_boundaries": "reconstructed"})
     return rows, mappings
 
 
@@ -253,7 +342,7 @@ def audit(rows, stage, instance, evidence, *, local_sources=None):
         session_ids.add(metadata["session_id"])
         stats["messages"] += len(parsed.messages)
         stats["excluded_events"] += len(metadata["excluded_events"])
-        stats["audit_only_records"] += row["tools"] is None
+        stats["tool_contexts"] += len(row["tools"])
         for s in metadata["steps"]:
             stats[f"steps_{s['target_kind']}_{s['status']}"] += 1
             stats[f"inputs_{s['input_provenance']}"] += 1
@@ -261,10 +350,8 @@ def audit(rows, stage, instance, evidence, *, local_sources=None):
         sources = list(metadata["sources"])
         sources.extend(s["source"] for s in metadata["steps"])
         sources.extend(e["source"] for e in metadata["excluded_events"])
-        sources.extend(metadata["tools_provenance"]["sources"])
-        for s in metadata["steps"]:
-            if s["tools_provenance"] is not None:
-                sources.extend(s["tools_provenance"]["sources"])
+        for provenance in metadata["tools_provenance"]:
+            sources.extend(provenance["sources"])
         for source in sources:
             path = (local_sources or {}).get(source["path"], output / source["path"])
             actual = evidence.source(path, output, source["locator"])
@@ -274,7 +361,7 @@ def audit(rows, stage, instance, evidence, *, local_sources=None):
             calls.update(c["id"] for c in item.get("tool_calls", []))
             if item["role"] == "tool":
                 results.add(item["tool_call_id"])
-            for block in item["content"] if isinstance(item["content"], list) else []:
+            for block in item["content"] if isinstance(item.get("content"), list) else []:
                 if block["type"] == "image_url":
                     stats["image_occurrences"] += 1
                     referenced.add(block["image_url"]["url"])
@@ -300,11 +387,21 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--instances", nargs="+")
     parser.add_argument("--stage-only", action="store_true")
+    parser.add_argument("--script-context", type=Path, help="Legacy argument; script views do not use Codex tools")
+    parser.add_argument("--interactive-context", type=Path, required=True)
+    parser.add_argument("--session-root", type=Path, required=True)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     bench = root / "3DHarnessBench"
     work = Path(tempfile.mkdtemp(prefix="astra-contract-", dir=root / "temp"))
     evidence, pending, reports = Evidence(), [], []
+    contexts = {}
+    for kind, path in (("agent", args.interactive_context),):
+        context = read_json(path)
+        for source in context["recovery"]["sources"]:
+            if hashlib.sha256(Path(source["path"]).read_bytes()).hexdigest() != source["sha256"]:
+                raise ValueError(f"Tool recovery evidence changed: {source['path']}")
+        contexts[kind] = context
     for setting in SETTINGS:
         instances = sorted(p.parent.parent for p in (bench / "runs" / setting / "gpt-6-astra").glob("*/raw/session_order.json"))
         if args.instances:
@@ -319,6 +416,38 @@ def main():
             images = ArchiveImages(instance / "raw", stage / "images")
             builder = iterative if setting in SETTINGS[:2] else interactive
             rows, mappings = builder(instance, images, evidence)
+            view = "script" if setting in SETTINGS[:2] else "agent"
+            context = contexts.get(view)
+            output = instance / "post_train_trajectory"
+            recovery_path = stage / "tool_context_recovery.json"
+            local_sources = {}
+            if view == "agent":
+                recovery_path.write_text(json.dumps(context, ensure_ascii=False, indent=2) + "\n")
+                recovery_source = {"path": "tool_context_recovery.json",
+                                   "sha256": hashlib.sha256(recovery_path.read_bytes()).hexdigest(),
+                                   "locator": "/tools"}
+                local_sources = {recovery_source["path"]: recovery_path}
+            for row, mapping in zip(rows, mappings, strict=True):
+                if view == "script":
+                    mapping.update(tool_definitions="not_applicable", request_boundaries="reconstructed")
+                    continue
+                sid = row["metadata"]["session_id"]
+                runtime_path = (output / row["metadata"]["sources"][1]["path"]).resolve()
+                runtime_id, origins = runtime_sources(runtime_path, output, evidence, context)
+                if runtime_id != sid:
+                    raise ValueError(f"Runtime session mismatch: {runtime_path}")
+                row["tools"] = [indexed_tools(context["tools"])]
+                row["metadata"]["tools_provenance"] = [
+                    {"status": "recovered", "sources": [recovery_source, *origins]}]
+                row["metadata"]["sources"].extend([
+                    recovery_source, *origins, evidence.source(Path(__file__), output, "/")])
+                mapping.update(tool_definitions="recovered", request_boundaries="reconstructed")
+                attach_additional_tools(row, mapping, context["tools"])
+            old_text = (output / "trajectory.jsonl").read_text()
+            previous = ([load_json(old_text)] if old_text.splitlines()[0].strip() == "{"
+                        else [load_json(line) for line in old_text.splitlines()])
+            if [preserved_messages(row) for row in rows] != [preserved_messages(row) for row in previous]:
+                raise ValueError(f"Messages or session boundaries changed: {instance}")
             if images.warnings:
                 raise ValueError(images.warnings)
             path = stage / "trajectory.jsonl"
@@ -326,14 +455,16 @@ def main():
             reloaded = [load_json(line) for line in path.read_text().splitlines()]
             if reloaded != rows:
                 raise ValueError("JSONL roundtrip mismatch")
-            stats = audit(reloaded, stage, instance, evidence)
+            stats = audit(reloaded, stage, instance, evidence, local_sources=local_sources)
             report = {"scene": setting, "instance": instance.name, "statistics": stats,
-                      "sessions": mappings, "image_recoveries": list(images.recoveries.values())}
+                      "sessions": mappings, "image_recoveries": list(images.recoveries.values()),
+                      "recovery": context["recovery"] if view == "agent" else None}
+            (stage / "recovery_report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
             report_path = work / "reports" / setting / f"{instance.name}.json"
             report_path.parent.mkdir(parents=True, exist_ok=True)
             report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
             reports.append(report)
-            pending.append((instance / "post_train_trajectory", stage))
+            pending.append((output, stage))
             if len(pending) % 10 == 0 or args.instances:
                 print(json.dumps({"staged_instances": len(pending), "scene": setting,
                                   "instance": instance.name, **stats}), flush=True)
@@ -341,7 +472,8 @@ def main():
     summary = {"instances": len(pending), "statistics": dict(sum((Counter(r["statistics"]) for r in reports), Counter())),
                "scenes": {s: dict(sum((Counter(r["statistics"]) for r in reports if r["scene"] == s), Counter())) for s in SETTINGS},
                "published": False, "work_directory": str(work.relative_to(root)),
-               "limitations": ["交互记录缺少完整工具定义、exec 初始内部接口说明和逐次请求输入，仅供审计。",
+               "schema_version": 3,
+               "limitations": ["工具上下文从对应版本运行环境恢复，标记 recovered；逐次完整原始请求未直接归档，输入标记 reconstructed。",
                                "单图、多图是按运行检查点重建的脚本任务视图，不声称复原教师内部工具会话。",
                                "当前训练数据读取器仍采用旧 ShareGPT 协议；本次仅整理数据，不修改训练代码，未运行训练 audit/preview。"]}
     if not args.stage_only:
@@ -350,6 +482,8 @@ def main():
             backup.parent.mkdir(parents=True, exist_ok=True)
             if output.exists():
                 output.rename(backup)
+            if (stage / "tool_context_recovery.json").exists():
+                del evidence.hashes[(stage / "tool_context_recovery.json").resolve()]
             stage.rename(output)
         # Check the published bytes and every image using the same contract audit.
         for output, _ in pending:
@@ -357,7 +491,7 @@ def main():
             audit(rows, output, output.parent, evidence)
         evidence.verify()
         summary["published"] = True
-        destination = bench / "metadata" / "trajectory_contract_v1"
+        destination = bench / "metadata" / "trajectory_contract_v3"
         destination.mkdir(parents=True, exist_ok=True)
         for setting in SETTINGS:
             shutil.copytree(work / "reports" / setting, destination / setting, dirs_exist_ok=True)

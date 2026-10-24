@@ -3,7 +3,7 @@ import json
 import pytest
 
 from scripts.export_astra_chat_completions import ArchiveImages
-from scripts.rebuild_astra_contract import Evidence, interactive
+from scripts.rebuild_astra_contract import Evidence, environment_message, interactive, runtime_sources
 from scripts.recover_interactive_contract import recover
 from tools.validate_trajectory import Trajectory
 
@@ -48,7 +48,7 @@ def test_interactive_generation_boundaries_and_tool_images(tmp_path):
 
     rows, mappings = interactive(instance, Images(), Evidence())
     row = rows[0]
-    Trajectory.model_validate(row)
+    assert row["messages"][0]["role"] == "developer"
     assert row["tools"] is None
     assert len(row["messages"]) == 5
     assert row["messages"][2]["content"] == [{"type": "text", "text": "Inspecting."}]
@@ -59,7 +59,8 @@ def test_interactive_generation_boundaries_and_tool_images(tmp_path):
     assert row["messages"][3]["content"][1]["image_url"]["detail"] == "high"
     assert len(mappings[0]["message_sources"][2]) == 2
     assert [s["target_kind"] for s in row["metadata"]["steps"]] == ["tool_call", "final_reply"]
-    assert all(s["input_provenance"] == "unknown" and s["context_indices"] == []
+    assert all(s["input_provenance"] == "reconstructed"
+               and s["context_indices"] == list(range(s["target_index"]))
                for s in row["metadata"]["steps"])
     assert any("推理" in e["reason"] for e in row["metadata"]["excluded_events"])
 
@@ -70,15 +71,19 @@ def test_interactive_generation_boundaries_and_tool_images(tmp_path):
     source = {"path": "tool_context_recovery.json", "sha256": "a" * 64, "locator": "/tools"}
     recovered = recover(row, mappings[0], context, source)
     Trajectory.model_validate(recovered)
+    assert recovered["messages"][0]["tools"] == context["tools"]
+    assert recovered["messages"][0]["type"] == "additional_tools"
+    assert len(mappings[0]["message_sources"]) == len(recovered["messages"])
     call, reply = recovered["metadata"]["steps"]
-    assert call["context_indices"] == [0, 1]
-    assert call["target_index"] == 2
-    assert reply["context_indices"] == [0, 1, 2, 3]
-    assert reply["target_index"] == 4
+    assert call["context_indices"] == [0, 1, 2]
+    assert call["target_index"] == 3
+    assert reply["context_indices"] == [0, 1, 2, 3, 4]
+    assert reply["target_index"] == 5
     assert call["tool_context_index"] == 0
-    assert call["available_tool_indices"] == reply["available_tool_indices"] == [0]
-    assert recovered["tools"][0]["namespace_description"] == "Execution tools"
-    assert recovered["metadata"]["tools_provenance"]["status"] == "recovered"
+    assert reply["tool_context_index"] == 0
+    assert "available_tool_indices" not in call
+    assert recovered["tools"][0][0]["namespace_description"] == "Execution tools"
+    assert recovered["metadata"]["tools_provenance"][0]["status"] == "recovered"
     context["recovery"]["static_tool_context"] = False
     with pytest.raises(ValueError, match="per-request snapshots"):
         recover(row, mappings[0], context, source)
@@ -91,3 +96,51 @@ def test_redacted_image_requires_unique_evidence(tmp_path):
     images = ArchiveImages(raw, tmp_path / "stage/images")
     with pytest.raises(ValueError, match="one exact match"):
         images.save("data:image/png;base64,iVBORw0KGgo[REDACTED_IMAGE]AAAA")
+
+
+@pytest.mark.parametrize("change", ["none", "version", "compaction", "second_turn", "search", "missing_tool"])
+def test_runtime_recovery_checks_evidence_and_boundaries(tmp_path, change):
+    runtime = {"cli_version": "0.153.4", "model": "gpt-6-astra", "effort": "high",
+               "approval_policy": "never", "sandbox_policy": {"type": "danger-full-access"}}
+    turn = {key: value for key, value in runtime.items() if key != "cli_version"}
+    context = {"recovery": {"runtime": runtime, "static_tool_context": True}, "tools": [{
+        "type": "namespace", "name": "functions", "description": "Execution tools",
+        "tools": [{"type": "custom", "name": "exec", "description": "Runtime",
+                   "format": {"type": "text"}}]}]}
+    records = [
+        {"type": "session_meta", "payload": {"session_id": "session", "cli_version": "0.153.4"}},
+        {"type": "turn_context", "payload": turn},
+        {"type": "response_item", "payload": {"type": "custom_tool_call", "name": "exec", "input": "text(1);"}},
+    ]
+    if change == "version":
+        records[0]["payload"]["cli_version"] = "0.154.0"
+    elif change == "compaction":
+        records.append({"type": "compacted", "payload": {}})
+    elif change == "second_turn":
+        records.append({"type": "turn_context", "payload": turn})
+    elif change == "search":
+        records[2]["payload"]["input"] = "await tools.tool_search({query: 'render'});"
+    elif change == "missing_tool":
+        records[2]["payload"]["name"] = "other"
+    path = tmp_path / "session.jsonl"
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    if change == "none":
+        session, sources = runtime_sources(path, tmp_path, Evidence(), context)
+        assert session == "session"
+        assert [source["locator"] for source in sources] == ["line:1", "line:2"]
+    else:
+        with pytest.raises(ValueError):
+            runtime_sources(path, tmp_path, Evidence(), context)
+
+
+def test_environment_rendering_preserves_historical_values():
+    state = {"environments": {"local": {"cwd": "/historical/workspace", "shell": "bash", "status": "available"}},
+             "current_date": "2026-09-09", "timezone": "Etc/UTC",
+             "filesystem": '<filesystem><permission_profile type="disabled" /></filesystem>'}
+    item = environment_message(state)
+    assert item["role"] == "user"
+    assert item["content"] == ('<environment_context>\n  <cwd>/historical/workspace</cwd>\n'
+                               '  <shell>bash</shell>\n  <current_date>2026-09-09</current_date>\n'
+                               '  <timezone>Etc/UTC</timezone>\n'
+                               '  <filesystem><permission_profile type="disabled" /></filesystem>\n'
+                               '</environment_context>')
