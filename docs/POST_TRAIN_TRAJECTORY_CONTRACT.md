@@ -1,6 +1,6 @@
 # post_train_trajectory 交付规范 v3
 
-本文描述 [`harness_training/data/contract.py`](../harness_training/data/contract.py) 的原生工具事件格式。用户指定保持不变的 [`tools/validate_trajectory.py`](../tools/validate_trajectory.py) 仍校验旧包装格式，不能用于本次原生事件归档。归档保存消息、工具定义和训练目标边界，不是可直接发送给模型服务的请求体。格式校验通过不代表训练读取器、模板或模型已经支持该记录。
+本文以当前 [`tools/validate_trajectory.py`](../tools/validate_trajectory.py) 的字段定义和关联校验为准。归档保存消息、工具定义和训练目标边界，不是可直接发送给模型服务的请求体。格式校验通过不代表训练读取器、模板或模型已经支持该记录。
 
 ## 1. 文件布局与场景
 
@@ -29,7 +29,7 @@ UTF-8 JSONL 每行保存一个完整会话对象；`.json` 可保存单个展开
 | --- | --- | --- |
 | `schema_version` | integer | 固定为 `3`，不接受布尔值、字符串或其他版本 |
 | `model` | 非空 string | 教师模型标识 |
-| `messages` | 非空 array | 普通消息、原生工具事件或 `AdditionalTools` 工具声明，按归档顺序保存 |
+| `messages` | 非空 array | 普通消息或 `AdditionalTools` 工具声明，按归档顺序保存 |
 | `tools` | `list[ToolContext]` | 每个 `ToolContext` 是 `list[Tool]`；是否允许外层为空由场景决定 |
 | `metadata` | object | 场景、来源和步骤，见第 5 节 |
 
@@ -44,10 +44,10 @@ UTF-8 JSONL 每行保存一个完整会话对象；`.json` 可保存单个展开
 | 字段 | 类型 | 必填与约束 |
 | --- | --- | --- |
 | `index` | Index | 必填，必须等于在 `messages` 中的位置，从 0 开始 |
-| `role` | string | 必填，取 `system`、`developer`、`user`、`assistant` |
-| `content` | string 或内容块数组 | 必填，不接受 null |
-
-普通消息不接受 `tool_calls` 或 `tool_call_id`。assistant 文字和随后的工具调用按原始 session log 分成独立条目，即使它们属于同一次生成也不合并。
+| `role` | string | 必填，取 `system`、`developer`、`user`、`assistant`、`tool` |
+| `content` | string、内容块数组或 null | 必填；只有带工具调用的 assistant 可以为 null |
+| `tool_calls` | 调用数组或 null | 可省略；非 null 时仅限 assistant，且数组非空 |
+| `tool_call_id` | 非空 string 或 null | tool 消息必须为非空字符串；其他角色只能省略或为 null |
 
 内容块只接受以下两种结构：
 
@@ -59,27 +59,27 @@ UTF-8 JSONL 每行保存一个完整会话对象；`.json` 可保存单个展开
 {"type":"image_url","image_url":{"url":"images/reference.png","detail":"auto"}}
 ```
 
-`image_url.url` 必填，必须为相对的 `images/...` 路径，不允许绝对路径、`..` 路径段、反斜杠、远程 URL 或 base64。`detail` 可省略或为 null；非 null 时取 `auto`、`low`、`high`。普通消息的图片只允许出现在 user 中；工具返回图片使用下一节的原生 `input_image`。其他角色的内容块只能是文字。
+`image_url.url` 必填，必须为相对的 `images/...` 路径，不允许绝对路径、`..` 路径段、反斜杠、远程 URL 或 base64。`detail` 可省略或为 null；非 null 时取 `auto`、`low`、`high`。图片只允许出现在 user 和 tool 消息，其他角色的内容块只能是文字。
 
-图片不去重，工具结果保留为独立原生事件，不改成 user，错误输出不删除，不补造成功回复。推理事件不混入普通 assistant 答案，原始证据保留在来源日志中；当前元数据没有额外的排除事件字段。
+图片不去重，工具结果不改成 user，错误输出不删除，不补造成功回复。推理事件不混入普通 assistant 答案，原始证据保留在来源日志中；当前元数据没有额外的排除事件字段。
 
 ### 3.2 工具调用与结果
 
-工具调用和返回独立保存于 `messages`，不包含 `role`、`content`、`tool_calls`、`tool_call_id` 或 `custom`/`function` 嵌套包装。每个原始调用事件对应一个条目，不把多个调用合并成数组。
+Function 调用的 `arguments` 必须是能解析成 JSON 对象的字符串；custom 调用的 `input` 保留自由文本原文：
 
 ```json
-{"index":2,"role":"assistant","content":[{"type":"text","text":"先检查模型。"}]}
-{"index":3,"type":"custom_tool_call","name":"exec","call_id":"call_1","input":"text('example');"}
-{"index":4,"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_text","text":"example"},{"type":"input_image","image_url":"images/result.png","detail":"high"}]}
-{"index":5,"type":"function_call","name":"wait","call_id":"call_2","arguments":"{\"cell_id\":\"demo\"}"}
-{"index":6,"type":"function_call_output","call_id":"call_2","output":"原始字符串返回"}
+{"id":"call_1","type":"function","function":{"name":"wait","arguments":"{\"cell_id\":\"demo\"}"}}
 ```
 
-调用的 `index`、`type`、`name`、`call_id` 和 `input` 或 `arguments` 必填。Function 的 `arguments` 是可解析为 JSON 对象的原始字符串；custom 的 `input` 保留自由文本，不改写 exec 中的代码。日志中已有的 `id`、`status` 可按原值保留，不从结果推断成功状态。
+```json
+{"id":"call_2","type":"custom","custom":{"name":"exec","input":"text('example');"}}
+```
 
-返回的 `index`、`type`、`call_id`、`output` 必填。`output` 保留日志中的字符串或有序内容块数组；数组允许 `input_text`（`text` 字符串）和 `input_image`（`image_url` 为本地 `images/...` 路径字符串，`detail` 可省略或为 null、`auto`、`low`、`high`、`original`）。仅图片地址改为已整理的相对路径，文字、重复图片位置、块顺序均保持。日志中的内部运行元数据不作为模型事件字段交付。
+调用对象的 `id`、`type` 和对应的 `function` 或 `custom` 都必填，内部名称必须非空。不得互换调用类型，尤其不能把 `exec` 中的代码改成直接调用内部工具。
 
-同一会话的 `call_id` 唯一。返回必须指向之前已有的调用，且 custom/function 类型匹配，每个调用最多一条返回。格式校验允许没有返回的调用；全量数据审计另检查调用与返回完整配对。异步 exec 和后续 wait 的返回分别属于各自调用。
+同一会话的调用 ID 唯一。每条 tool 消息的 `tool_call_id` 必须指向之前已有的调用，同一调用最多有一条结果消息；当前校验器不要求每次调用最终都有结果。多个返回内容块按原顺序保存在同一结果消息中，异步 exec 和后续 wait 的返回分别属于各自调用。
+
+Astra 数据按原始 session log 将 assistant 文字和随后的工具调用分别保存为两条 assistant 消息；调用消息使用 `content: null` 和现有 `tool_calls` 格式，工具返回保持原有 tool 消息结构。
 
 ### 3.3 工具声明 `AdditionalTools`
 
@@ -171,12 +171,12 @@ UTF-8 JSONL 每行保存一个完整会话对象；`.json` 可保存单个展开
 | --- | --- |
 | `id` | 非空字符串，会话内唯一 |
 | `context_indices` | Index 数组，严格递增且均小于 target_index；允许不连续 |
-| `target_index` | Index，必须指向现有 assistant 文字消息或原生工具调用事件；同一目标只能出现一次 |
+| `target_index` | Index，必须指向现有的普通 assistant 消息；同一目标只能出现一次 |
 | `target_kind` | `script`、`tool_call`、`final_reply` 或 `status` |
 | `status` | `OK`、`ERROR` 或 `UNKNOWN` |
 | `source` | 单个来源对象 |
 
-原生工具调用事件必须标记为 `tool_call`，该类型的目标不能是普通 assistant 文字或工具返回。脚本场景只接受 `script` 目标。`status` 表示记录的执行状态，校验器只检查枚举值，不据此确认执行成功或训练可用。
+带工具调用的目标必须标记为 `tool_call`，`tool_call` 目标也必须有调用。脚本场景只接受 `script` 目标。`status` 表示记录的执行状态，校验器只检查枚举值，不据此确认执行成功或训练可用。
 
 交互场景还要求：
 
@@ -193,7 +193,7 @@ UTF-8 JSONL 每行保存一个完整会话对象；`.json` 可保存单个展开
 以下代码演示对已经校验过的交互记录选择输入，`additional_tools` 本身也是归档中的历史条目：
 
 ```python
-from harness_training.data.contract import AdditionalTools
+from tools.validate_trajectory import AdditionalTools
 
 step = trajectory.metadata.steps[0]
 visible_items = [trajectory.messages[i] for i in step.context_indices]

@@ -1,6 +1,6 @@
 # 轨迹 v3 格式示例
 
-对应[交付规范 v3](POST_TRAIN_TRAJECTORY_CONTRACT.md)，字段与数据模块的 [`contract.py`](../harness_training/data/contract.py) 一致；原独立校验脚本按用户要求冻结，仍只支持旧格式。下面两个完整 JSON 对象分别演示交互场景和脚本场景，可以各自保存为 `.json` 后运行格式校验。
+对应[交付规范 v3](POST_TRAIN_TRAJECTORY_CONTRACT.md)，字段与当前 [`validate_trajectory.py`](../tools/validate_trajectory.py) 一致。下面两个完整 JSON 对象分别演示交互场景和脚本场景，可以各自保存为 `.json` 后运行格式校验。
 
 **示例全部为合成数据，仅用于说明结构，不能用于训练。** 工具说明、消息、来源路径和摘要都是演示值；格式通过不证明这些来源或调用真实存在。代码文本只作为数据保存，不执行。
 
@@ -60,37 +60,55 @@
     },
     {
       "index": 2,
-      "type": "custom_tool_call",
-      "call_id": "call_exec",
-      "name": "exec",
-      "input": "text('demo');"
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_exec",
+          "type": "custom",
+          "custom": {
+            "name": "exec",
+            "input": "text('demo');"
+          }
+        }
+      ]
     },
     {
       "index": 3,
-      "type": "custom_tool_call_output",
-      "call_id": "call_exec",
-      "output": "演示任务仍在运行，cell_id=demo。"
+      "role": "tool",
+      "tool_call_id": "call_exec",
+      "content": "演示任务仍在运行，cell_id=demo。"
     },
     {
       "index": 4,
-      "type": "function_call",
-      "call_id": "call_wait",
-      "name": "wait",
-      "arguments": "{\"cell_id\":\"demo\"}"
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_wait",
+          "type": "function",
+          "function": {
+            "name": "wait",
+            "arguments": "{\"cell_id\":\"demo\"}"
+          }
+        }
+      ]
     },
     {
       "index": 5,
-      "type": "function_call_output",
-      "call_id": "call_wait",
-      "output": [
+      "role": "tool",
+      "tool_call_id": "call_wait",
+      "content": [
         {
-          "type": "input_text",
+          "type": "text",
           "text": "演示结果。"
         },
         {
-          "type": "input_image",
-          "image_url": "images/demo.png",
-          "detail": "auto"
+          "type": "image_url",
+          "image_url": {
+            "url": "images/demo.png",
+            "detail": "auto"
+          }
         }
       ]
     },
@@ -226,7 +244,7 @@
 对已经校验过的交互记录，可以这样选择一步的输入：
 
 ```python
-from harness_training.data.contract import AdditionalTools
+from tools.validate_trajectory import AdditionalTools
 
 step = trajectory.metadata.steps[0]
 visible_items = [trajectory.messages[i] for i in step.context_indices]
@@ -281,18 +299,18 @@ target = trajectory.messages[step.target_index]
 }
 ```
 
-脚本场景要求 `tools: []`，没有 `additional_tools`、原生工具调用或返回事件。完整脚本是 assistant 的正文，不包装成工具调用，也不执行示例脚本。
+脚本场景要求 `tools: []`，没有 `additional_tools`、`tool_calls` 或 tool 消息。完整脚本是 assistant 的正文，不包装成工具调用，也不执行示例脚本。
 
 ## 4. 校验方式与已有示例文件
 
 将第 1 节和第 3 节的完整 JSON 分别保存到工作区 `temp/` 下，例如 `trajectory_agent_example.json` 和 `trajectory_script_example.json`，在项目根目录运行：
 
 ```bash
-pixi run python -c 'from pathlib import Path; from harness_training.data.contract import validate_record; validate_record(Path("temp/trajectory_agent_example.json").read_text()); print("格式检查通过")'
-pixi run python -c 'from pathlib import Path; from harness_training.data.contract import validate_record; validate_record(Path("temp/trajectory_script_example.json").read_text()); print("格式检查通过")' 
+pixi run validate-trajectory temp/trajectory_agent_example.json
+pixi run validate-trajectory temp/trajectory_script_example.json
 ```
 
-每份示例的预期输出均为 `格式检查通过`。检查仅覆盖结构与关联关系，不读取图片或来源文件，也不加载模型。
+每份示例的预期格式检查结果均为 `1 条通过，0 条失败`。检查仅覆盖结构与关联关系，不读取图片或来源文件，也不加载模型。
 
 已有 [bathroom_sink/trajectory.json](examples/bathroom_sink/trajectory.json) 和 [tool_context_demo.json](examples/bathroom_sink/tool_context_demo.json) 是先前的结构演示材料，本次只更新 Markdown，未同步修改这些 JSON。不能把本页示例的通过结果视为已有文件已符合当前验证器；已有文件需要单独校验。
 

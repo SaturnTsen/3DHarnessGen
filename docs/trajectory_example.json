@@ -49,37 +49,55 @@
     },
     {
       "index": 2,
-      "type": "custom_tool_call",
-      "call_id": "call_exec",
-      "name": "exec",
-      "input": "text('demo');"
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_exec",
+          "type": "custom",
+          "custom": {
+            "name": "exec",
+            "input": "text('demo');"
+          }
+        }
+      ]
     },
     {
       "index": 3,
-      "type": "custom_tool_call_output",
-      "call_id": "call_exec",
-      "output": "演示任务仍在运行，cell_id=demo。"
+      "role": "tool",
+      "tool_call_id": "call_exec",
+      "content": "演示任务仍在运行，cell_id=demo。"
     },
     {
       "index": 4,
-      "type": "function_call",
-      "call_id": "call_wait",
-      "name": "wait",
-      "arguments": "{\"cell_id\":\"demo\"}"
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "call_wait",
+          "type": "function",
+          "function": {
+            "name": "wait",
+            "arguments": "{\"cell_id\":\"demo\"}"
+          }
+        }
+      ]
     },
     {
       "index": 5,
-      "type": "function_call_output",
-      "call_id": "call_wait",
-      "output": [
+      "role": "tool",
+      "tool_call_id": "call_wait",
+      "content": [
         {
-          "type": "input_text",
+          "type": "text",
           "text": "演示结果。"
         },
         {
-          "type": "input_image",
-          "image_url": "images/demo.png",
-          "detail": "auto"
+          "type": "image_url",
+          "image_url": {
+            "url": "images/demo.png",
+            "detail": "auto"
+          }
         }
       ]
     },

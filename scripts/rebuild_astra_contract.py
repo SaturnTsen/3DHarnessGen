@@ -21,8 +21,7 @@ from PIL import Image
 
 from scripts.build_trajectory import image_refs, prompts, resolve_recorded, retry_prompt
 from scripts.export_astra_chat_completions import ArchiveImages, content_parts, read_json
-from harness_training.data.contract import Trajectory, load_json
-from harness_training.data.contract import CustomToolCall, FunctionToolCall, ToolOutput, item_images
+from tools.validate_trajectory import Trajectory, load_json
 
 
 SETTINGS = ("Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction")
@@ -105,10 +104,10 @@ def preserved_messages(row):
         if item.get("type") == "additional_tools":
             continue
         content = item.get("content")
-        if item.get("role") == "user" and isinstance(content, str) and content.startswith("<environment_context>\n"):
+        if item["role"] == "user" and isinstance(content, str) and content.startswith("<environment_context>\n"):
             continue
         payload = {key: value for key, value in item.items() if key != "index"}
-        if payload.get("role") == "system":
+        if payload["role"] == "system":
             payload["role"] = "developer"
         result.append(payload)
     return row["metadata"]["session_id"], result
@@ -245,17 +244,6 @@ def iterative(instance, images, evidence):
     return rows, mappings
 
 
-def native_tool_event(payload, images):
-    """Keep native event fields; only materialize image addresses locally."""
-    fields = {"type", "name", "call_id", "input", "arguments", "output", "id", "status"}
-    item = {key: copy.deepcopy(value) for key, value in payload.items() if key in fields}
-    if "output" in item and isinstance(item["output"], list):
-        for block in item["output"]:
-            if block["type"] == "input_image":
-                block["image_url"] = images.save(block["image_url"])
-    return item
-
-
 def interactive(instance, images, evidence):
     raw, output = instance / "raw", instance / "post_train_trajectory"
     order_path = raw / "session_order.json"
@@ -292,10 +280,18 @@ def interactive(instance, images, evidence):
                     continue
                 phase = payload.get("phase")
                 if kind == "message":
-                    role = "developer" if payload.get("role") == "system" else payload["role"]
+                    role = "developer" if payload["role"] == "system" else payload["role"]
                     item = message(role, content_parts(payload["content"], images))
-                elif kind in {"function_call", "custom_tool_call", "function_call_output", "custom_tool_call_output"}:
-                    item = native_tool_event(payload, images)
+                elif kind in {"function_call", "custom_tool_call"}:
+                    call = {"id": payload["call_id"]}
+                    if kind == "custom_tool_call":
+                        call.update(type="custom", custom={"name": payload["name"], "input": payload["input"]})
+                    else:
+                        call.update(type="function", function={"name": payload["name"], "arguments": payload["arguments"]})
+                    item = message("assistant", None, tool_calls=[call])
+                elif kind in {"function_call_output", "custom_tool_call_output"}:
+                    item = message("tool", content_parts(payload["output"], images) or "",
+                                   tool_call_id=payload["call_id"])
                 else:
                     raise ValueError(f"Unsupported response item: {path}:{li}: {kind}")
             else:
@@ -307,10 +303,9 @@ def interactive(instance, images, evidence):
             raise ValueError(f"No session ID: {path}")
         steps = []
         for index, item in enumerate(messages):
-            is_call = item.get("type") in {"function_call", "custom_tool_call"}
-            if item.get("role") != "assistant" and not is_call:
+            if item["role"] != "assistant":
                 continue
-            if is_call:
+            if item.get("tool_calls"):
                 kind = "tool_call"
             elif phases[index] == "final_answer":
                 kind = "final_reply"
@@ -348,14 +343,14 @@ def audit(rows, stage, instance, evidence, *, local_sources=None):
             actual = evidence.source(path, output, source["locator"])
             if actual["sha256"] != source["sha256"]:
                 raise ValueError("Source digest mismatch")
-        for item in parsed.messages:
-            if isinstance(item, (FunctionToolCall, CustomToolCall)):
-                calls.add(item.call_id)
-            if isinstance(item, ToolOutput):
-                results.add(item.call_id)
-            for relative in item_images(item):
-                stats["image_occurrences"] += 1
-                referenced.add(relative)
+        for item in row["messages"]:
+            calls.update(c["id"] for c in item.get("tool_calls", []))
+            if item["role"] == "tool":
+                results.add(item["tool_call_id"])
+            for block in item["content"] if isinstance(item.get("content"), list) else []:
+                if block["type"] == "image_url":
+                    stats["image_occurrences"] += 1
+                    referenced.add(block["image_url"]["url"])
         if calls != results:
             raise ValueError(f"Incomplete tool results: {calls ^ results}")
         stats["tool_calls"] += len(calls)

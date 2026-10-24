@@ -20,7 +20,7 @@
 
 工具来自该步骤唯一可见的 `additional_tools` 声明，并由契约验证与顶层工具上下文一致。函数 schema 保留其声明；function 参数严格解析为对象。custom 包装由 YAML 的 `template.custom_tools` 明确指定名称和字符串参数名，当前为 `exec: input`。包装保留原输入，不把 exec 中的代码改写为直接 Blender 调用。命名空间与输入格式保留在学生接口的工具说明中，不修改归档。
 
-归档中的调用和结果保留原生事件字段，没有 role；Qwen 模板在内存中转换为模型需要的 assistant/tool 消息，调用 ID 和内容块顺序保留。工具发现返回的说明留在结果中，不提升为工具声明。未知 custom 映射报错，不猜测转换。静态 runtime 工具文件与旧 ShareGPT 映射不再参与处理。
+工具结果仍是 tool 消息，调用 ID 和内容块顺序保留。工具发现返回的说明留在结果中，不提升为工具声明。未知 custom 映射报错，不猜测转换。静态 runtime 工具文件与旧 ShareGPT 映射不再参与处理。
 
 ## 检查、预览与训练
 

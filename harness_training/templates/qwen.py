@@ -7,7 +7,7 @@ from typing import cast
 from harness_training.types import ChatMessage, Processor, TensorInputs, ToolSchema
 from harness_training.config import TemplateConfig
 from harness_training.data.base import TrainingExample
-from harness_training.data.contract import AdditionalTools, CustomToolCall, FunctionToolCall, ToolOutput, InputImageBlock, ImageBlock, TextFormat, GrammarFormat
+from harness_training.data.contract import AdditionalTools, CustomToolCall, ImageBlock, TextFormat, GrammarFormat
 from .base import BaseTemplate, RenderedExample, SampleTooLong, TemplateError
 
 
@@ -37,35 +37,31 @@ class QwenTemplate(BaseTemplate):
                         definition["description"] += f"\nNamespace: {tool.namespace}\n{tool.namespace_description or ''}"
                     tools.append(cast(ToolSchema, {"type": "function", "function": definition}))
                 continue
-            images.extend(example.record.images_by_message[index])
-            if isinstance(item, (CustomToolCall, FunctionToolCall)):
-                if isinstance(item, CustomToolCall):
-                    parameter = self.config.custom_tools.get(item.name)
-                    if not parameter:
-                        raise TemplateError(f"No custom tool mapping for {item.name}")
-                    arguments = {parameter: item.input}
-                else:
-                    arguments = json.loads(item.arguments)
-                messages.append(cast(ChatMessage, {"role": "assistant", "content": "", "tool_calls": [
-                    {"id": item.call_id, "type": "function", "function": {
-                        "name": item.name, "arguments": arguments}}]}))
-                continue
-            if isinstance(item, ToolOutput):
-                content = item.output if isinstance(item.output, str) else [
-                    {"type": "image"} if isinstance(block, InputImageBlock)
-                    else {"type": "text", "text": block.text} for block in item.output]
-                messages.append(cast(ChatMessage, {"role": "tool", "tool_call_id": item.call_id,
-                                                   "content": content}))
-                continue
             content = item.content
             if isinstance(content, list):
                 content = [({"type": "image"} if isinstance(block, ImageBlock)
                             else block.model_dump()) for block in content]
+            images.extend(example.record.images_by_message[index])
             if item.role in {"system", "developer"}:
                 instructions.append(content if isinstance(content, str) else
                                     "".join(block["text"] for block in content or []))
                 continue
             message = cast(ChatMessage, {"role": item.role, "content": content or ""})
+            if item.tool_call_id:
+                message["tool_call_id"] = item.tool_call_id
+            if item.tool_calls:
+                calls = []
+                for call in item.tool_calls:
+                    if isinstance(call, CustomToolCall):
+                        parameter = self.config.custom_tools.get(call.custom.name)
+                        if not parameter:
+                            raise TemplateError(f"No custom tool mapping for {call.custom.name}")
+                        name, arguments = call.custom.name, {parameter: call.custom.input}
+                    else:
+                        name, arguments = call.function.name, json.loads(call.function.arguments)
+                    calls.append({"id": call.id, "type": "function", "function": {
+                        "name": name, "arguments": arguments}})
+                message["tool_calls"] = calls
             messages.append(message)
         if instructions:
             messages.insert(0, {"role": "system", "content": "\n\n".join(instructions)})

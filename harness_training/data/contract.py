@@ -1,6 +1,6 @@
 """Validate the project's v3 post_train_trajectory JSON/JSONL contract.
 
-Text messages use role/content; calls and outputs retain native session event fields.
+Messages use role/content, assistant tool_calls and tool tool_call_id.
 Additional tool definitions are checked against each step's tool context.
 Tool discovery descriptions remain in tool results, with image order preserved.
 """
@@ -66,80 +66,55 @@ class ImageBlock(BaseModelStrict):
 ContentBlock = Annotated[TextBlock | ImageBlock, Field(discriminator="type")]
 
 
-class InputTextBlock(BaseModelStrict):
-    type: Literal["input_text"]
-    text: str
-
-
-class InputImageBlock(BaseModelStrict):
-    type: Literal["input_image"]
-    image_url: Nonempty
-    detail: Literal["auto", "low", "high", "original"] | None = None
-
-    @field_validator("image_url")
-    @classmethod
-    def relative_image(cls, value: str) -> str:
-        return ImageURL.relative_image(value)
-
-
-OutputBlock = Annotated[InputTextBlock | InputImageBlock, Field(discriminator="type")]
-
-
 class FunctionToolCall(BaseModelStrict):
-    index: Index
-    type: Literal["function_call"]
-    name: Nonempty
-    call_id: Nonempty
-    arguments: str
-    id: Nonempty | None = None
-    status: str | None = None
+    class Function(BaseModelStrict):
+        name: Nonempty
+        arguments: str
 
-    @field_validator("arguments")
-    @classmethod
-    def object_arguments(cls, value: str) -> str:
-        if not isinstance(load_json(value), dict):
-            raise ValueError("function arguments must encode a JSON object")
-        return value
+        @field_validator("arguments")
+        @classmethod
+        def object_arguments(cls, value: str) -> str:
+            if not isinstance(load_json(value), dict):
+                raise ValueError("function arguments must encode a JSON object")
+            return value
+
+    id: Nonempty
+    type: Literal["function"]
+    function: Function
 
 
 class CustomToolCall(BaseModelStrict):
-    index: Index
-    type: Literal["custom_tool_call"]
-    name: Nonempty
-    call_id: Nonempty
-    input: str
-    id: Nonempty | None = None
-    status: str | None = None
+    class Custom(BaseModelStrict):
+        name: Nonempty
+        input: str
+
+    id: Nonempty
+    type: Literal["custom"]
+    custom: Custom
 
 
-class ToolOutput(BaseModelStrict):
-    index: Index
-    type: Literal["function_call_output", "custom_tool_call_output"]
-    call_id: Nonempty
-    output: str | list[OutputBlock]
-    id: Nonempty | None = None
-    status: str | None = None
+ToolCall = Annotated[FunctionToolCall | CustomToolCall, Field(discriminator="type")]
 
 
 class Message(BaseModelStrict):
     index: Index
-    role: Literal["system", "developer", "user", "assistant"]
-    content: str | list[ContentBlock]
+    role: Literal["system", "developer", "user", "assistant", "tool"]
+    content: str | list[ContentBlock] | None
+    tool_calls: list[ToolCall] | None = None
+    tool_call_id: Nonempty | None = None
 
     @model_validator(mode="after")
     def role_fields(self) -> Self:
-        if isinstance(self.content, list) and self.role != "user":
+        if self.tool_calls is not None and (self.role != "assistant" or not self.tool_calls):
+            raise ValueError("tool_calls must be a nonempty list on an assistant message")
+        if (self.role == "tool") != (self.tool_call_id is not None):
+            raise ValueError("tool_call_id is required only on tool messages")
+        if self.content is None and not self.tool_calls:
+            raise ValueError("null content is allowed only for assistant tool calls")
+        if isinstance(self.content, list) and self.role in {"system", "developer", "assistant"}:
             if any(isinstance(block, ImageBlock) for block in self.content):
-                raise ValueError("message images are allowed only in user messages")
+                raise ValueError("images are allowed only in user and tool messages")
         return self
-
-
-def item_images(item: Message | ToolOutput | AdditionalTools | FunctionToolCall | CustomToolCall) -> list[str]:
-    if isinstance(item, ToolOutput) and isinstance(item.output, list):
-        return [block.image_url for block in item.output if isinstance(block, InputImageBlock)]
-    if isinstance(item, Message) and isinstance(item.content, list):
-        return [block.image_url.url for block in item.content if isinstance(block, ImageBlock)]
-    return []
 
 
 # ----------------------- additional tools -----------------------
@@ -248,7 +223,7 @@ class AdditionalTools(BaseModelStrict):
         return result
 
 
-TrajectoryItem = AdditionalTools | Message | FunctionToolCall | CustomToolCall | ToolOutput
+TrajectoryItem = AdditionalTools | Message
 
 
 # ----------------------- tools：工具定义与上下文 -----------------------
@@ -360,7 +335,7 @@ class Trajectory(BaseModelStrict):
         if script:
             if self.tools or any(
                 isinstance(item, AdditionalTools)
-                or isinstance(item, (FunctionToolCall, CustomToolCall, ToolOutput))
+                or isinstance(item, Message) and (item.tool_calls or item.role == "tool")
                 for item in self.messages
             ):
                 raise ValueError("script view must omit Codex tools and tool events")
@@ -387,16 +362,15 @@ class Trajectory(BaseModelStrict):
                 if payload not in [context_payload(context) for context in self.tools]:
                     raise ValueError(f"messages[{index}]: additional_tools does not match any tool context")
                 additional_contexts[index] = context
-            if isinstance(message, (FunctionToolCall, CustomToolCall)):
-                if message.call_id in calls:
-                    raise ValueError(f"messages[{index}]: duplicate call ID {message.call_id}")
-                calls[message.call_id] = message.type
-            if isinstance(message, ToolOutput):
-                if message.call_id not in calls or message.call_id in results:
-                    raise ValueError(f"messages[{index}]: missing earlier call or duplicate result")
-                if message.type != calls[message.call_id] + "_output":
-                    raise ValueError(f"messages[{index}]: output type does not match call")
-                results.add(message.call_id)
+            if isinstance(message, Message):
+                for call in message.tool_calls or []:
+                    if call.id in calls:
+                        raise ValueError(f"messages[{index}]: duplicate call ID {call.id}")
+                    calls[call.id] = call.type
+                if message.tool_call_id is not None:
+                    if message.tool_call_id not in calls or message.tool_call_id in results:
+                        raise ValueError(f"messages[{index}]: missing earlier call or duplicate result")
+                    results.add(message.tool_call_id)
         step_ids: set[str] = set()
         targets: set[int] = set()
         for step in self.metadata.steps:
@@ -407,11 +381,10 @@ class Trajectory(BaseModelStrict):
             if step.target_index >= len(self.messages):
                 raise ValueError(f"step {step.id}: target_index is outside messages")
             target = self.messages[step.target_index]
-            is_call = isinstance(target, (FunctionToolCall, CustomToolCall))
-            if not is_call and not (isinstance(target, Message) and target.role == "assistant"):
-                raise ValueError(f"step {step.id}: target must be assistant text or a native tool call")
-            if (step.target_kind == "tool_call") != is_call:
-                raise ValueError(f"step {step.id}: target_kind does not match native tool call")
+            if not isinstance(target, Message) or target.role != "assistant":
+                raise ValueError(f"step {step.id}: target must be assistant")
+            if (step.target_kind == "tool_call") != bool(target.tool_calls):
+                raise ValueError(f"step {step.id}: target_kind does not match tool_calls")
             if script and step.target_kind != "script":
                 raise ValueError(f"step {step.id}: script view requires script targets")
             if script:
@@ -420,17 +393,17 @@ class Trajectory(BaseModelStrict):
             if len(visible_tools) != 1:
                 raise ValueError(f"step {step.id}: context requires exactly one additional_tools item")
             names = tool_names(visible_tools[0])
-            if is_call:
-                kind = "custom" if isinstance(target, CustomToolCall) else "function"
-                if names.get(target.name) != kind:
-                    raise ValueError(f"step {step.id}: tool {target.name} is unavailable or has the wrong type")
+            for call in target.tool_calls or []:
+                name = call.function.name if isinstance(call, FunctionToolCall) else call.custom.name
+                if names.get(name) != call.type:
+                    raise ValueError(f"step {step.id}: tool {name} is unavailable or has the wrong type")
             visible_calls: set[str] = set()
             for index in step.context_indices:
                 message = self.messages[index]
-                if isinstance(message, (FunctionToolCall, CustomToolCall)):
-                    visible_calls.add(message.call_id)
-                if isinstance(message, ToolOutput) and message.call_id not in visible_calls:
-                    raise ValueError(f"step {step.id}: tool result has no call in visible context")
+                if isinstance(message, Message):
+                    visible_calls.update(call.id for call in message.tool_calls or [])
+                    if message.tool_call_id is not None and message.tool_call_id not in visible_calls:
+                        raise ValueError(f"step {step.id}: tool result has no call in visible context")
         return self
 
 
@@ -439,5 +412,3 @@ def validate_record(raw: str) -> Trajectory:
     # Require JSON syntax before using the project's YAML/Pydantic reader.
     value = load_json(raw)
     return parse_yaml_raw_as(Trajectory, json.dumps(value, ensure_ascii=False))
-
-

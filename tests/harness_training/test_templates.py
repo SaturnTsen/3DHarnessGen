@@ -50,14 +50,16 @@ def interactive_record(tmp_path, *, two_chains=False, instance="ObjectFactory"):
         {"index": 1, "role": "developer", "type": "additional_tools", "tools": [
             {"type": "namespace", "name": "functions", "description": "Execution", "tools": [custom]}]},
         {"index": 2, "role": "user", "content": "Build the object."},
-        {"index": 3, "type": "custom_tool_call", "call_id": "a", "name": "exec", "input": "text('inspect');"},
-        {"index": 4, "type": "custom_tool_call_output", "call_id": "a", "output": [
-            {"type": "input_text", "text": "Current screenshot:"},
-            {"type": "input_image", "image_url": "images/shot.png"},
-            {"type": "input_text", "text": "Repeated screenshot:"},
-            {"type": "input_image", "image_url": "images/shot.png"}]},
-        {"index": 5, "type": "custom_tool_call", "call_id": "b", "name": "exec", "input": "text('build');"},
-        {"index": 6, "type": "custom_tool_call_output", "call_id": "b", "output": "Completed."},
+        {"index": 3, "role": "assistant", "content": "Inspect first.", "tool_calls": [
+            {"id": "a", "type": "custom", "custom": {"name": "exec", "input": "text('inspect');"}}]},
+        {"index": 4, "role": "tool", "tool_call_id": "a", "content": [
+            {"type": "text", "text": "Current screenshot:"},
+            {"type": "image_url", "image_url": {"url": "images/shot.png"}},
+            {"type": "text", "text": "Repeated screenshot:"},
+            {"type": "image_url", "image_url": {"url": "images/shot.png"}}]},
+        {"index": 5, "role": "assistant", "content": None, "tool_calls": [
+            {"id": "b", "type": "custom", "custom": {"name": "exec", "input": "text('build');"}}]},
+        {"index": 6, "role": "tool", "tool_call_id": "b", "content": "Completed."},
         {"index": 7, "role": "assistant", "content": "Saved the reconstruction."},
     ]
     def step(id, target, indices, kind):
@@ -112,7 +114,7 @@ def test_selected_history_does_not_leak(tmp_path, config):
 def test_unmatched_observation_is_rejected(tmp_path, config):
     path = interactive_record(tmp_path)
     row = json.loads(path.read_text())
-    row["messages"][4]["call_id"] = "wrong"
+    row["messages"][4]["tool_call_id"] = "wrong"
     path.write_text(json.dumps(row))
     cfg = config.data.model_copy(update={"runs_root": tmp_path})
     data = TrajectoryDataset(cfg, "ActiveVisual", config.experiment.seed).prepare()
@@ -166,9 +168,8 @@ def test_function_arguments_preserve_json_types(tmp_path, config, processor):
     row["messages"][1]["tools"][0]["tools"] = [{"type": "function", **definition}]
     arguments = {"nested": {"boolean": True, "number": 3, "null": None}, "code": "text('x');\ntext(2);"}
     for index, call_id in [(3, "a"), (5, "b")]:
-        row["messages"][index] = {"index": index, "type": "function_call", "call_id": call_id,
-                                   "name": "exec", "arguments": json.dumps(arguments)}
-        row["messages"][index + 1]["type"] = "function_call_output"
+        row["messages"][index]["tool_calls"] = [{"id": call_id, "type": "function", "function": {
+            "name": "exec", "arguments": json.dumps(arguments)}}]
     path.write_text(json.dumps(row))
     cfg = config.data.model_copy(update={"runs_root": tmp_path})
     data = TrajectoryDataset(cfg, "ActiveVisual", config.experiment.seed).prepare()

@@ -23,10 +23,12 @@ def record():
                 {"type": "text", "text": "Inspect this."},
                 {"type": "image_url", "image_url": {"url": "images/reference.png"}},
             ]},
-            {"index": 3, "type": "custom_tool_call", "call_id": "call_render_1",
-             "name": "exec", "input": "image(result);"},
-            {"index": 4, "type": "custom_tool_call_output", "call_id": "call_render_1", "output": [
-                {"type": "input_image", "image_url": "images/result.png"},
+            {"index": 3, "role": "assistant", "content": None, "tool_calls": [
+                {"id": "call_render_1", "type": "custom", "custom": {
+                    "name": "exec", "input": "image(result);"}},
+            ]},
+            {"index": 4, "role": "tool", "tool_call_id": "call_render_1", "content": [
+                {"type": "image_url", "image_url": {"url": "images/result.png"}},
             ]},
             {"index": 5, "role": "assistant", "content": "The base is too wide."},
         ],
@@ -75,7 +77,7 @@ def test_delivered_example():
     lambda r: r["metadata"]["steps"][0].update(target_index=2, context_indices=[0, 1]),
     lambda r: r["metadata"]["steps"][0].update(target_kind="final_reply"),
     lambda r: r["metadata"]["steps"][1].update(context_indices=[0, 1, 2, 4]),
-    lambda r: r["messages"][4].update(call_id="missing"),
+    lambda r: r["messages"][4].update(tool_call_id="missing"),
     lambda r: r["messages"][2]["content"][1]["image_url"].update(url="images/../outside.png"),
     lambda r: r["metadata"]["sources"][0].update(sha256="placeholder"),
     lambda r: r["tools"][0].append(copy.deepcopy(r["tools"][0][0])),
@@ -115,12 +117,11 @@ def test_function_context_does_not_require_exec(record):
     record["tools"] = [[{"type": "function", "function": {
         "name": "render", "description": "Render", "parameters": {"type": "object"}}}]]
     sync_tools(record)
-    record["messages"][3] = {"index": 3, "type": "function_call", "call_id": "call_render_1",
-                             "name": "render", "arguments": '{"view":"front"}'}
-    record["messages"][4]["type"] = "function_call_output"
+    record["messages"][3]["tool_calls"] = [{"id": "call_render_1", "type": "function", "function": {
+        "name": "render", "arguments": '{"view":"front"}'}}]
     validate_record(json.dumps(record))
     for invalid in ['[]', '{"view":NaN}', '{"view":1,"view":2}', 'not json']:
-        record["messages"][3]["arguments"] = invalid
+        record["messages"][3]["tool_calls"][0]["function"]["arguments"] = invalid
         with pytest.raises(ValueError):
             validate_record(json.dumps(record))
 
@@ -182,12 +183,6 @@ def test_strict_json(raw):
 
 
 def test_cli_json_and_jsonl(record, tmp_path):
-    # The user explicitly froze the standalone legacy CLI. Verify its existing
-    # behavior separately; native deliveries use the data module and audit.
-    record["messages"][3] = {"index": 3, "role": "assistant", "content": None, "tool_calls": [
-        {"id": "call_render_1", "type": "custom", "custom": {"name": "exec", "input": "image(result);"}}]}
-    record["messages"][4] = {"index": 4, "role": "tool", "tool_call_id": "call_render_1", "content": [
-        {"type": "image_url", "image_url": {"url": "images/result.png"}}]}
     path = tmp_path / "trajectory.json"
     path.write_text(json.dumps(record, indent=2))
     command = [sys.executable, "tools/validate_trajectory.py"]
@@ -250,30 +245,29 @@ def test_namespace_and_grammar_are_preserved(record):
 def test_discovered_descriptions_remain_tool_results(record):
     original_tools = copy.deepcopy(record["tools"])
     original_additional_tools = copy.deepcopy(record["messages"][1])
-    image = {"type": "input_image", "image_url": "images/result.png"}
+    image = {"type": "image_url", "image_url": {"url": "images/result.png"}}
     content = [
-        {"type": "input_text", "text": '[{"name":"blender_render","description":"Render a scene"}]'},
+        {"type": "text", "text": '[{"name":"blender_render","description":"Render a scene"}]'},
         image,
-        {"type": "input_text", "text": "The second image follows."},
+        {"type": "text", "text": "The second image follows."},
         copy.deepcopy(image),
     ]
-    record["messages"][4]["output"] = content
+    record["messages"][4]["content"] = content
     parsed = validate_record(json.dumps(record))
     restored = parsed.model_dump(exclude_unset=True)
     assert restored == record
     assert restored["tools"] == original_tools
     assert restored["messages"][1] == original_additional_tools
-    assert restored["messages"][4]["type"] == "custom_tool_call_output"
-    assert "role" not in restored["messages"][4]
-    assert restored["messages"][4]["call_id"] == "call_render_1"
-    assert restored["messages"][4]["output"] == content
+    assert restored["messages"][4]["role"] == "tool"
+    assert restored["messages"][4]["tool_call_id"] == "call_render_1"
+    assert restored["messages"][4]["content"] == content
 
 
 @pytest.mark.parametrize("change", [
-    lambda r: r["messages"][3].update(call_id="call_render_1_duplicate"),
-    lambda r: r["messages"][4].pop("call_id"),
+    lambda r: r["messages"][3]["tool_calls"][0].update(id="call_render_1_duplicate"),
+    lambda r: r["messages"][4].pop("tool_call_id"),
     lambda r: r["messages"][4].update(role="user"),
-    lambda r: r["messages"][4].update(type="function_call_output"),
+    lambda r: r["messages"][4].update(type="custom_tool_call_output", call_id="call_render_1"),
     lambda r: r["messages"][2]["content"][0].update(type="input_text"),
 ])
 def test_trajectory_fields_and_tool_result_links_are_required(record, change):

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from scripts.export_astra_chat_completions import ArchiveImages
 from scripts.rebuild_astra_contract import Evidence, attach_additional_tools, audit, indexed_tools, interactive, step
-from harness_training.data.contract import Trajectory
+from tools.validate_trajectory import Trajectory
 
 
 def recover(row, mapping, context, source):
@@ -30,13 +30,12 @@ def recover(row, mapping, context, source):
                                    if "推理事件" in event["reason"]]
     metadata["steps"] = []
     for message in row["messages"]:
-        is_call = message.get("type") in {"function_call", "custom_tool_call"}
-        if message.get("role") != "assistant" and not is_call:
+        if message["role"] != "assistant":
             continue
         index = message["index"]
         # This recovery is restricted to a single, fresh, uncompacted turn.
         # Tool discovery responses remain ordinary tool messages in the prefix.
-        kind = "tool_call" if is_call else "status"
+        kind = "tool_call" if message.get("tool_calls") else "status"
         if index == len(row["messages"]) - 1 and kind == "status":
             kind = "final_reply"
         target = step(index, kind, mapping["message_sources"][index][0],

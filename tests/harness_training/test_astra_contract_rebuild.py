@@ -5,7 +5,7 @@ import pytest
 from scripts.export_astra_chat_completions import ArchiveImages
 from scripts.rebuild_astra_contract import Evidence, environment_message, interactive, runtime_sources
 from scripts.recover_interactive_contract import recover
-from harness_training.data.contract import Trajectory
+from tools.validate_trajectory import Trajectory
 
 
 def test_interactive_generation_boundaries_and_tool_images(tmp_path):
@@ -29,10 +29,10 @@ def test_interactive_generation_boundaries_and_tool_images(tmp_path):
             "internal_chat_message_metadata_passthrough": meta}},
         {"type": "response_item", "payload": {
             "type": "custom_tool_call_output", "call_id": "call", "output": [
-                {"type": "input_text", "text": "before"},
-                {"type": "input_image", "image_url": "screenshot", "detail": "high"},
-                {"type": "input_text", "text": "after"},
-                {"type": "input_image", "image_url": "screenshot", "detail": "high"}]}},
+                {"type": "text", "text": "before"},
+                {"type": "image_url", "image_url": {"url": "screenshot", "detail": "high"}},
+                {"type": "text", "text": "after"},
+                {"type": "image_url", "image_url": {"url": "screenshot", "detail": "high"}}]}},
         {"type": "response_item", "payload": {"type": "reasoning", "summary": ["private"]}},
         {"type": "response_item", "payload": {
             "type": "message", "role": "assistant", "phase": "final_answer",
@@ -43,7 +43,7 @@ def test_interactive_generation_boundaries_and_tool_images(tmp_path):
 
     class Images:
         def save(self, value):
-            assert value == "screenshot"
+            assert value == {"url": "screenshot", "detail": "high"}
             return "images/screenshot.png"
 
     rows, mappings = interactive(instance, Images(), Evidence())
@@ -52,13 +52,13 @@ def test_interactive_generation_boundaries_and_tool_images(tmp_path):
     assert row["tools"] is None
     assert len(row["messages"]) == 6
     assert row["messages"][2]["content"] == [{"type": "text", "text": "Inspecting."}]
-    assert row["messages"][3] == {"index": 3, "type": "custom_tool_call", "call_id": "call",
-                                   "name": "exec", "input": "image(result);"}
+    assert row["messages"][3] == {"index": 3, "role": "assistant", "content": None,
+        "tool_calls": [{"id": "call", "type": "custom", "custom": {"name": "exec", "input": "image(result);"}}]}
     assert "tool_calls" not in row["messages"][2]
-    assert "role" not in row["messages"][4]
-    assert row["messages"][4]["call_id"] == "call"
-    assert [b["type"] for b in row["messages"][4]["output"]] == ["input_text", "input_image", "input_text", "input_image"]
-    assert row["messages"][4]["output"][1]["detail"] == "high"
+    assert row["messages"][4]["role"] == "tool"
+    assert row["messages"][4]["tool_call_id"] == "call"
+    assert [b["type"] for b in row["messages"][4]["content"]] == ["text", "image_url", "text", "image_url"]
+    assert row["messages"][4]["content"][1]["image_url"]["detail"] == "high"
     assert len(mappings[0]["message_sources"][2]) == 1
     assert len(mappings[0]["message_sources"][3]) == 1
     assert [s["target_kind"] for s in row["metadata"]["steps"]] == ["status", "tool_call", "final_reply"]

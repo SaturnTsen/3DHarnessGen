@@ -6,7 +6,7 @@ from random import Random
 from typing import Literal
 
 from harness_training.config import DataConfig, Scene
-from .contract import Trajectory, item_images, validate_record
+from .contract import ImageBlock, Message, Trajectory, validate_record
 from .base import BaseDataset, DatasetBundle, TrainingExample, TrajectoryRecord
 
 
@@ -93,8 +93,12 @@ class TrajectoryDataset(BaseDataset):
     def _read_record(self, path: Path, line: int, instance: str, row: Trajectory) -> TrajectoryRecord:
         if row.metadata.scene != self.scene or row.metadata.instance != instance:
             raise DataError("Scene or instance metadata does not match input path")
-        bindings = tuple(tuple((path.parent / image).resolve() for image in item_images(item))
-                         for item in row.messages)
+        bindings = tuple(
+            tuple((path.parent / block.image_url.url).resolve()
+                  for block in item.content if isinstance(block, ImageBlock))
+            if isinstance(item, Message) and isinstance(item.content, list) else ()
+            for item in row.messages
+        )
         return TrajectoryRecord(path, line, instance, row, bindings)
 
     def _select(self, record: TrajectoryRecord) -> list[TrainingExample]:
