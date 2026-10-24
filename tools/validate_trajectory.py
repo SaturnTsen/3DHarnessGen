@@ -118,43 +118,7 @@ class Message(BaseModelStrict):
         return self
 
 
-class AdditionalTools(BaseModelStrict):
-    index: Index
-    type: Literal["additional_tools"]
-    role: Literal["developer"]
-    tools: list[ToolDefinition] = Field(min_length=1)
-
-    @field_validator("tools")
-    @classmethod
-    def definitions(cls, value: list[ToolDefinition]) -> list[ToolDefinition]:
-        for definition in value:
-            if definition.type is None:
-                raise ValueError("additional tool definition requires type")
-            definition.check_kind(definition.type)
-        return value
-
-    def tool_context(self) -> list[Tool]:
-        result: list[Tool] = []
-        for item in self.tools:
-            namespace = (
-                {"namespace": item.name, "namespace_description": item.description}
-                if item.type == "namespace" else {}
-            )
-            definitions = item.tools if item.type == "namespace" else [item]
-            for definition in cast(list[ToolDefinition], definitions):
-                payload = definition.model_dump(exclude={"type"}, exclude_unset=True)
-                result.append(Tool.model_validate({
-                    "type": definition.type, definition.type: payload, **namespace,
-                }))
-        tool_names(result)
-        return result
-
-
-TrajectoryItem = AdditionalTools | Message
-
-
-# ----------------------- tools：工具定义与上下文 -----------------------
-
+# ----------------------- additional tools -----------------------
 
 class TextFormat(BaseModelStrict):
     type: Literal["text"]
@@ -206,6 +170,64 @@ class ToolDefinition(BaseModelStrict):
             raise ValueError(f"unexpected fields for {kind} definition")
         if "type" in self.model_fields_set and self.type != kind:
             raise ValueError("definition type does not match its tool")
+
+
+class ToolNameSpace(BaseModelStrict):
+    type: Literal["namespace"]
+    name: Nonempty
+    description: str
+    tools: list[ToolDefinition] = Field(min_length=1)
+
+    def check_kind(self, kind: str) -> None:
+        if kind != self.type:
+            raise ValueError("definition type does not match its namespace")
+        for tool in self.tools:
+            if tool.type not in {"function", "custom"}:
+                raise ValueError("namespace members must declare function or custom type")
+            tool.check_kind(tool.type)
+
+    @model_validator(mode="after")
+    def definition_fields(self) -> Self:
+        self.check_kind(self.type)
+        return self
+
+    
+class AdditionalTools(BaseModelStrict):
+    index: Index
+    type: Literal["additional_tools"]
+    role: Literal["developer"]
+    tools: list[ToolNameSpace] = Field(min_length=1)
+
+    @field_validator("tools")
+    @classmethod
+    def definitions(cls, value: list[ToolDefinition]) -> list[ToolDefinition]:
+        for definition in value:
+            if definition.type is None:
+                raise ValueError("additional tool definition requires type")
+            definition.check_kind(definition.type)
+        return value
+
+    def tool_context(self) -> list[Tool]:
+        result: list[Tool] = []
+        for item in self.tools:
+            namespace = (
+                {"namespace": item.name, "namespace_description": item.description}
+                if item.type == "namespace" else {}
+            )
+            definitions = item.tools if item.type == "namespace" else [item]
+            for definition in cast(list[ToolDefinition], definitions):
+                payload = definition.model_dump(exclude={"type"}, exclude_unset=True)
+                result.append(Tool.model_validate({
+                    "type": definition.type, definition.type: payload, **namespace,
+                }))
+        tool_names(result)
+        return result
+
+
+TrajectoryItem = AdditionalTools | Message
+
+
+# ----------------------- tools：工具定义与上下文 -----------------------
 
 
 class Tool(BaseModelStrict):
@@ -263,19 +285,12 @@ class Source(BaseModelStrict):
         return value
 
 
-class ToolsProvenance(BaseModelStrict):
-    status: Literal["recorded", "recovered"]
-    sources: Annotated[list[Source], Field(min_length=1)]
-
-
 class Step(BaseModelStrict):
     id: Nonempty
     context_indices: list[Index]
-    tool_context_index: Index | None
     target_index: Index
     target_kind: Literal["script", "tool_call", "final_reply", "status"]
     status: Literal["OK", "ERROR", "UNKNOWN"]
-    input_provenance: Literal["recorded", "reconstructed", "unknown"]
     source: Source
 
     @model_validator(mode="after")
@@ -287,20 +302,13 @@ class Step(BaseModelStrict):
         return self
 
 
-class ExcludedEvent(BaseModelStrict):
-    source: Source
-    reason: Nonempty
-
-
 class Metadata(BaseModelStrict):
     scene: Literal["Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction"]
     instance: Nonempty
     session_id: Nonempty
     view: Literal["script", "agent"]
     sources: list[Source]
-    tools_provenance: list[ToolsProvenance]
     steps: list[Step]
-    excluded_events: list[ExcludedEvent]
 
 
 # ----------------------- Trajectory：完整轨迹与校验入口 -----------------------
@@ -326,7 +334,7 @@ class Trajectory(BaseModelStrict):
         if self.metadata.view != ("script" if script else "agent"):
             raise ValueError("metadata.view does not match scene")
         if script:
-            if self.tools or self.metadata.tools_provenance or any(
+            if self.tools or any(
                 isinstance(item, AdditionalTools)
                 or isinstance(item, Message) and (item.tool_calls or item.role == "tool")
                 for item in self.messages
@@ -334,8 +342,6 @@ class Trajectory(BaseModelStrict):
                 raise ValueError("script view must omit Codex tools and tool events")
         elif not self.tools:
             raise ValueError("agent view requires nonempty tool contexts")
-        if len(self.metadata.tools_provenance) != len(self.tools):
-            raise ValueError("tools_provenance must have one entry per tool context")
         for context_index, context in enumerate(self.tools):
             if not context:
                 raise ValueError(f"tools[{context_index}]: tool context must not be empty")
@@ -345,17 +351,18 @@ class Trajectory(BaseModelStrict):
                     raise ValueError(f"tools[{context_index}]: tool index must equal its context array position")
         calls: dict[str, str] = {}
         results: set[str] = set()
-        additional_contexts: dict[int, list[dict]] = {}
+        additional_contexts: dict[int, list[Tool]] = {}
         for index, message in enumerate(self.messages):
             if message.index != index:
                 raise ValueError(f"messages[{index}].index must equal {index}")
             if not script and isinstance(message, Message) and message.role == "system":
                 raise ValueError("agent instructions must retain the recorded developer role")
             if isinstance(message, AdditionalTools):
-                payload = context_payload(message.tool_context())
+                context = message.tool_context()
+                payload = context_payload(context)
                 if payload not in [context_payload(context) for context in self.tools]:
                     raise ValueError(f"messages[{index}]: additional_tools does not match any tool context")
-                additional_contexts[index] = payload
+                additional_contexts[index] = context
             if isinstance(message, Message):
                 for call in message.tool_calls or []:
                     if call.id in calls:
@@ -382,21 +389,15 @@ class Trajectory(BaseModelStrict):
             if script and step.target_kind != "script":
                 raise ValueError(f"step {step.id}: script view requires script targets")
             if script:
-                if step.tool_context_index is not None:
-                    raise ValueError(f"step {step.id}: script tool_context_index must be null")
                 continue
-            if step.tool_context_index is None or step.tool_context_index >= len(self.tools):
-                raise ValueError(f"step {step.id}: tool_context_index is outside tools")
-            names = tool_names(self.tools[step.tool_context_index])
+            visible_tools = [additional_contexts[index] for index in step.context_indices if index in additional_contexts]
+            if len(visible_tools) != 1:
+                raise ValueError(f"step {step.id}: context requires exactly one additional_tools item")
+            names = tool_names(visible_tools[0])
             for call in target.tool_calls or []:
                 name = call.function.name if isinstance(call, FunctionToolCall) else call.custom.name
                 if names.get(name) != call.type:
                     raise ValueError(f"step {step.id}: tool {name} is unavailable or has the wrong type")
-            visible_tools = [additional_contexts[index] for index in step.context_indices if index in additional_contexts]
-            if len(visible_tools) != 1:
-                raise ValueError(f"step {step.id}: context requires exactly one additional_tools item")
-            if visible_tools[0] != context_payload(self.tools[step.tool_context_index]):
-                raise ValueError(f"step {step.id}: additional_tools does not match tool_context_index")
             visible_calls: set[str] = set()
             for index in step.context_indices:
                 message = self.messages[index]
