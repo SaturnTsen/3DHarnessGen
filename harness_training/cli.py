@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from harness_training.config import load_config
@@ -20,7 +21,8 @@ def main() -> None:
     smoke = commands.add_parser("smoke", help="检查真实数据和 Processor，并运行小模型训练测试")
     smoke.add_argument("--scene", choices=["Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction"])
     smoke.add_argument("--instance", help="指定对象，需同时指定 --scene")
-    smoke.add_argument("--include-unknown", action="store_true", help="本次检查额外接受 UNKNOWN 步骤")
+    smoke.add_argument("--include-unknown", action="store_true", default=True,
+                       help="接受 UNKNOWN 步骤（默认启用，保留此参数以兼容旧命令）")
     smoke.add_argument("--limit", type=int, default=1, help="每个场景最多预览的样本数")
     args = parser.parse_args()
     if args.limit <= 0:
@@ -33,7 +35,11 @@ def main() -> None:
         run_smoke(scene=args.scene, instance=args.instance, include_unknown=args.include_unknown, limit=args.limit)
         return
     try:
-        trainer = Trainer(load_config(args.config))
+        config = load_config(args.config)
+        if "UNKNOWN" not in config.data.accepted_statuses:
+            config.data.accepted_statuses.append("UNKNOWN")
+        print("警告：本次运行接受 UNKNOWN 状态的步骤；这些步骤的执行状态尚未确认。", file=sys.stderr)
+        trainer = Trainer(config)
         if args.command == "audit":
             result = trainer.audit()
         elif args.command == "prepare":

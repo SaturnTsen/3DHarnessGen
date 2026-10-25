@@ -5,6 +5,26 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Post-training: Preview (Single-view)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "harness_training.cli",
+            "python": "${workspaceFolder}/.pixi/envs/default/bin/python",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "preview",
+                "--config",
+                "${workspaceFolder}/configs/sft_single_view.yaml",
+                "--limit",
+                "1",
+                "--split",
+                "train"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "stopOnEntry": true
+        },
+        {
             "name": "Post-training: Audit",
             "type": "debugpy",
             "request": "launch",

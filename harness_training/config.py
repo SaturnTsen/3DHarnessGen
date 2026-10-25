@@ -141,6 +141,7 @@ class ModelConfig(StrictConfig):
     tuning: Literal["lora", "full"]
     freeze_vision: bool
     attention_implementation: Literal["sdpa", "eager", "flash_attention_2"]
+    device_map: Literal["auto", "balanced", "balanced_low_0", "sequential"] | None
     lora: LoRAConfig
     adapter: AdapterConfig
     local_files_only: bool

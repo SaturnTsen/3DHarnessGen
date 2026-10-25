@@ -51,6 +51,7 @@ class QwenModel(BaseModel):
             str(self.config.path), local_files_only=self.config.local_files_only,
             trust_remote_code=self.config.trust_remote_code, dtype=getattr(torch, self.config.dtype),
             attn_implementation=self.config.attention_implementation,
+            device_map=self.config.device_map,
         )
         self.model.config.use_cache = self.config.use_cache
         if self.config.tuning == "lora":

@@ -45,11 +45,15 @@ pixi run post-train preview --config configs/sft_single_view.yaml --limit 1
 
 按 `metadata.steps` 的 `context_indices` 和 `target_index` 选择训练内容，按 `data.accepted_statuses` 筛选状态，`include_final_reply` 控制是否学习最终回复。脚本、工具调用与状态回复均按步骤声明选择。对象的所有会话保持在同一个集合，样本 ID 包含会话和步骤标识。
 
+CLI 的 `audit`、`prepare`、`preview` 和 `train` 默认额外接受 `UNKNOWN` 步骤，并在标准错误输出中发出警告；原始状态保持不变，不改写 YAML。直接调用 `Trainer` 时仍按传入配置筛选。
+
 图片直接读取消息内容块中的 `images/...` 路径，以输入 JSONL 所在目录为起点解析，保留出现顺序与重复位置。缺失图片或无法解码的样本跳过并记录；`data.missing_images: error` 可以改为立即报错。
 
 ## 训练
 
 配置中的参数是起始值，不是对 27B 模型显存占用的保证。默认 BF16 LoRA 的基础模型仍以 BF16 加载，需要足够显存；LoRA 本身不压缩基础模型。先调整模型与运行参数，再执行训练。
+
+`model.device_map` 必须显式填写。常规训练填写 `null`；单进程跨多张 GPU 放置模型时可填写 `balanced`。这是按层分配权重，不是多进程数据并行，不能据此推断多卡训练吞吐或显存余量。
 
 ```bash
 pixi run post-train train --config configs/sft_single_view.yaml
@@ -78,11 +82,13 @@ method:
 通过现有 CLI 执行冒烟测试：
 
 ```bash
-pixi run post-train smoke --include-unknown
-pixi run post-train smoke --scene ActiveVisual --include-unknown --limit 2
+pixi run post-train smoke
+pixi run post-train smoke --scene ActiveVisual --limit 2
 ```
 
-每个场景选择一个真实对象检查数据并用 Processor 编码预览，再通过已有 Pixi 测试任务验证小 Qwen 训练、保存和恢复。报告保存在 `temp/smoke-post-training-*/`；不加载 27B 权重。`--include-unknown` 只调整此次检查的状态筛选，不修改正式配置。失败或测试被跳过时返回非零退出码。
+每个场景选择一个真实对象检查数据并用 Processor 编码预览，再通过已有 Pixi 测试任务验证小 Qwen 训练、保存和恢复。报告保存在 `temp/smoke-post-training-*/`；不加载 27B 权重。默认接受 `UNKNOWN` 步骤并输出警告，不修改正式配置；保留 `--include-unknown` 以兼容旧命令。失败或测试被跳过时返回非零退出码。
+
+终端实时显示阶段、耗时、对象和样本数量、预览图片及 token 数，以及逐项测试和训练输出。阶段日志保存在 `smoke.log`，完整测试日志保存在 `tests.log`，并列出最慢的 10 项测试。
 
 ```bash
 pixi run test-post-training

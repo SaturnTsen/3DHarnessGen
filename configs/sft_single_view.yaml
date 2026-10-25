@@ -173,6 +173,7 @@ model:
     mixed: false
     revision: null
   attention_implementation: sdpa
+  device_map: null
   dtype: bfloat16
   freeze_vision: true
   local_files_only: true
