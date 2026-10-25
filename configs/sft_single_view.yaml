@@ -140,15 +140,15 @@ method:
   batch_size: 1
   dataloader_workers: 0
   epochs: 1.0
-  eval_steps: 100
+  eval_steps: 10
   gradient_accumulation_steps: 8
   gradient_checkpointing: true
   learning_rate: 2e-05
-  logging_steps: 10
+  logging_steps: 1
   max_steps: -1
   name: sft
   resume_from: null
-  save_steps: 100
+  save_steps: 10
   save_total_limit: 2
   trainer:
     callbacks: null
@@ -173,7 +173,7 @@ model:
     mixed: false
     revision: null
   attention_implementation: sdpa
-  device_map: null
+  device_map: balanced
   dtype: bfloat16
   freeze_vision: true
   local_files_only: true
