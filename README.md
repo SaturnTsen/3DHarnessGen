@@ -147,6 +147,36 @@ FSDP2 使用模型声明的层类型进行分片，使用普通梯度检查点�
 QLoRA + FSDP 要求量化存储类型与 `model.dtype` 一致。
 不要在各个 torchrun 进程内运行 Hydra `--multirun`。
 
+### 官方 Qwen3.5-9B
+
+`configs/model/qwen35_9b.yaml` 使用下载到 `~/models/Qwen3.5-9B` 的官方多模态权重。
+`configs/sft_single_view_9b.yaml` 为 Single-view 的双卡 DDP + NF4 QLoRA 配置，
+基础计算使用 BF16，视觉模块冻结；沿用完整脚本、图片及对象划分规则，默认在线记录 W&B。
+使用 TRL 原生 `loss_type: chunked_nll` 分块计算相同的交叉熵，避免完整词表分数矩阵导致显存不足。
+模型配置组也可通过 `model=qwen35_9b` 用于其他场景。
+
+先执行短程配置检查真实 9B 模型的训练与保存：
+
+```bash
+pixi run post-train-distributed train --config configs/sft_single_view_9b_trial.yaml
+```
+
+该配置训练 3 步，每卡每步 1 条样本，梯度累积为 1，每步保存，关闭验证，
+并记录显存指标。输入长度预算保持 32768，不截断脚本。
+试跑目录是 `outputs/post_training/Single-view/qwen35_9b_qlora_trial_v2`。
+已经存在训练结果时，使用新的输出目录或显式恢复；恢复示例：
+
+```bash
+pixi run post-train-distributed train --config configs/sft_single_view_9b_trial.yaml \
+  method.resume_from=../outputs/post_training/Single-view/qwen35_9b_qlora_trial_v2/checkpoints/checkpoint-2
+```
+
+正式配置启用验证，使用独立输出目录和原有梯度累积设置：
+
+```bash
+pixi run post-train-distributed train --config configs/sft_single_view_9b.yaml
+```
+
 相对路径以 YAML 所在目录为起点，`~` 自动展开。`prepare()` 先读取当前场景的轨迹路径，再按 `data.instances` 筛选，最后将选中的路径传给 `_split_objects(paths)`。该方法用配置种子打乱路径副本，切分后生成训练、验证和测试分配；测试和验证数量向下取整，余下归入训练集。未选中的对象和其他场景不参与划分。同一组选中对象使用相同种子和比例时可复现；选中对象集合变化时可能重新分组。
 
 轨迹格式以 [v3 交付规范](docs/POST_TRAIN_TRAJECTORY_CONTRACT.md) 为准。`tools/validate_trajectory.py` 和训练读取器共用 `harness_training/data/contract.py` 的严格校验，不兼容旧的 `conversations` / `sharegpt_conversion` 数据。

@@ -1,0 +1,4 @@
+defaults:
+- qwen
+- _self_
+path: ~/models/Qwen3.5-9B

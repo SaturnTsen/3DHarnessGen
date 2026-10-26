@@ -1,7 +1,7 @@
 defaults:
 - data/trajectory
 - template/qwen
-- model/qwen
+- model: qwen
 - method/sft
 - scene: full_3d_interaction
 - tuning: lora

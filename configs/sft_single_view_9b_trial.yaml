@@ -1,0 +1,15 @@
+defaults:
+- sft_single_view_9b
+- _self_
+experiment:
+  name: sft_single_view_qwen35_9b_qlora_trial
+  output_dir: ../outputs/post_training/Single-view/qwen35_9b_qlora_trial_v2
+method:
+  max_steps: 3
+  gradient_accumulation_steps: 1
+  save_steps: 1
+  warmup_ratio: 0
+  backend:
+    eval_strategy: 'no'
+    do_eval: false
+    skip_memory_metrics: false

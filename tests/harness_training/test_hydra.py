@@ -16,6 +16,21 @@ from conftest import write_trajectory
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize("trial", [False, True])
+def test_official_9b_config_selects_model_and_training_mode(trial):
+    suffix = "_trial" if trial else ""
+    config = load_config(ROOT / f"configs/sft_single_view_9b{suffix}.yaml")
+    assert config.model.path == Path.home() / "models/Qwen3.5-9B"
+    assert config.distributed.strategy == "ddp"
+    assert config.model.quantization is not None
+    assert config.model.quantization.bnb_4bit_quant_type == "nf4"
+    assert config.method.backend.bf16 is True
+    assert config.method.backend.loss_type == "chunked_nll"
+    assert config.tracking.mode == "online"
+    assert config.method.max_steps == (3 if trial else -1)
+    assert config.method.backend.do_eval is not trial
+
+
 def test_composition_paths_ignore_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     config = load_config(ROOT / "configs/sft_single_view.yaml", [

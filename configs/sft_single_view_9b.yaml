@@ -1,0 +1,13 @@
+defaults:
+- sft_single_view
+- override model: qwen35_9b
+- override quantization: 4bit
+- override distributed: ddp
+- _self_
+experiment:
+  name: sft_single_view_qwen35_9b_qlora
+  output_dir: ../outputs/post_training/Single-view/qwen35_9b_qlora_v1
+method:
+  backend:
+    loss_type: chunked_nll
+    prediction_loss_only: true
