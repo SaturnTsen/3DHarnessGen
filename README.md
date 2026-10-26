@@ -1,4 +1,4 @@
-# 3DBootstrapLM 后训练
+# 3DHarnessGen 后训练
 
 四种场景各自训练，直接读取已有 v3 轨迹：
 
@@ -72,27 +72,29 @@ Hydra 自身日志与配置保存在当前项目的 `outputs/hydra` 或 `outputs
 
 ### W&B 实验记录
 
-`tracking` 配置组控制 W&B（Weights & Biases）的指标记录。默认 `tracking=disabled`；
-选择 `tracking=wandb` 时默认离线记录，不需要登录，不向服务器同步。
+`tracking` 配置组控制 W&B（Weights & Biases）的指标记录。四个场景默认使用 `tracking=wandb`、
+`tracking.mode=online`，正式训练自动向 W&B 的 `3DHarnessGen` 项目记录配置和指标。
 项目名、账号／团队、实验名称、分组、标签和 SDK 设置都在 `configs/tracking/wandb.yaml` 中显式配置。
 `tracking.entity: null` 表示在线模式使用登录账号的默认空间；Git 提交署名不作为 W&B 账号。
 
 ```bash
 # 先展开并检查配置，不加载模型。
-pixi run post-train-hydra --cfg job --resolve tracking=wandb
+pixi run post-train-hydra --cfg job --resolve
 
-# 单卡 QLoRA，离线记录。
+# 单卡 QLoRA，默认在线记录。
 CUDA_VISIBLE_DEVICES=0 pixi run post-train-hydra command.action=train \
-  quantization=4bit tracking=wandb \
+  quantization=4bit \
   experiment.output_dir=../outputs/post_training/Single-view/qlora_wandb_v1
 
 # 双卡 DDP，同一实验仅由全局主进程记录。
 pixi run post-train-distributed train --config configs/sft_single_view.yaml \
-  distributed=ddp quantization=4bit tracking=wandb \
+  distributed=ddp quantization=4bit \
   experiment.output_dir=../outputs/post_training/Single-view/ddp_qlora_wandb_v1
 ```
 
-在线使用时先执行 `pixi run wandb login`，再在训练命令上增加 `tracking.mode=online`。
+训练使用已有 W&B 登录凭据或 `WANDB_API_KEY` 环境变量；首次登录可直接执行 `pixi run wandb login --verify`。
+不需要在训练命令上额外启用在线模式。不提供单独的登录任务。
+如需离线记录，显式填写 `tracking.mode=offline`；完全关闭记录使用 `tracking=disabled`。
 需要指定团队时填写 `tracking.entity=团队名`；密钥通过登录或 `WANDB_API_KEY` 环境变量提供，不写入 YAML。
 W&B 按场景分组，自动接收训练后端的 loss、学习率、梯度范数、验证指标和训练汇总。
 只有 `train` 创建 W&B 实验，`audit`、`prepare` 和 `preview` 不创建实验。

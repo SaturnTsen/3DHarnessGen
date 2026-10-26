@@ -3194,7 +3194,7 @@ packages:
   size: 118849
   timestamp: 1784250406640
 - pypi: ./
-  name: bootstrap3d-post-training
+  name: 3dharnessgen
   requires_dist:
   - pydantic>=2.12,<3
   - pydantic-yaml>=1.6,<2

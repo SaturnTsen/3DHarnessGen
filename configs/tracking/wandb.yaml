@@ -1,7 +1,7 @@
 # @package _global_
 tracking:
-  mode: offline
-  project: 3DBootstrapLM
+  mode: online
+  project: 3DHarnessGen
   entity: null
   name: ${experiment.name}
   group: ${experiment.scene}

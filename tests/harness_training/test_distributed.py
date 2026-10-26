@@ -30,6 +30,8 @@ def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantizati
         "method.backend.fp16=false", "method.backend.eval_strategy=no", "method.backend.do_eval=false",
         f"tracking={'disabled' if strategy == 'single' else 'wandb'}",
     ])
+    if strategy != "single":
+        config.tracking.mode = "offline"
     config.tracking.settings.x_disable_stats = True
     config.model.path = tiny_qwen_path
     config.data.runs_root = tmp_path / "runs"
