@@ -28,6 +28,7 @@ def test_config_roundtrip_paths_and_unknown_keys(config, tmp_path):
     ("model", "lora", "backend", "runtime_config"), ("method", "backend"),
     ("method", "trainer"),
     ("distributed",),
+    ("tracking",), ("tracking", "settings"),
     ("method", "backend", "gradient_checkpointing_kwargs"), ("method", "backend", "dataset_kwargs"),
 ])
 def test_config_requires_explicit_fields(config, section):

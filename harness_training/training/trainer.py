@@ -20,6 +20,7 @@ from harness_training.templates.base import BaseTemplate, SampleTooLong, Templat
 from harness_training.templates.qwen import QwenTemplate
 from harness_training.training.methods.base import BaseTrainingMethod
 from harness_training.training.methods.sft import SFTMethod
+from harness_training.training.tracking import tracking_session
 
 if TYPE_CHECKING:
     from harness_training.data.base import TrainingExample
@@ -158,10 +159,11 @@ class Trainer:
             self.save_report(data)
             save_config(self.config, output / "resolved_config.yaml")
             write_json(output / "manifest.json", manifest)
-        metrics = self.method.run(self.model, self.template, data, output, resume_from)
-        # Distributed training has a single writer for the final metrics.
-        if int(os.environ.get("RANK", "0")) == 0:
-            write_json(output / "metrics.json", metrics)
+        with tracking_session(self.config, resume_from, is_main_process=int(os.environ.get("RANK", "0")) == 0):
+            metrics = self.method.run(self.model, self.template, data, output, resume_from)
+            # Distributed training has a single writer for the final metrics.
+            if int(os.environ.get("RANK", "0")) == 0:
+                write_json(output / "metrics.json", metrics)
         return metrics
 
     def save_report(self, data: DatasetBundle) -> None:

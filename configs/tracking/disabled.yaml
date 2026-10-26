@@ -1,0 +1,10 @@
+# @package _global_
+defaults:
+- wandb
+- _self_
+tracking:
+  mode: disabled
+method:
+  backend:
+    report_to: [none]
+    run_name: null

@@ -22,6 +22,31 @@ class ExperimentConfig(StrictConfig):
     output_dir: Path
 
 
+class WandbSettingsConfig(StrictConfig):
+    disable_code: Literal[True]
+    disable_git: Literal[True]
+    console: Literal["off"]
+    quiet: bool
+    x_disable_stats: bool
+    init_timeout: float = Field(gt=0)
+
+
+class TrackingConfig(StrictConfig):
+    mode: Literal["disabled", "offline", "online"]
+    project: str = Field(min_length=1)
+    entity: str | None
+    name: str = Field(min_length=1)
+    group: str | None
+    tags: list[str]
+    job_type: str
+    run_id: str | None = Field(pattern=r"^[A-Za-z0-9_-]+$")
+    new_run_resume: Literal["never"]
+    checkpoint_resume: Literal["must"]
+    log_model: Literal["false"]
+    watch: Literal["false"]
+    settings: WandbSettingsConfig
+
+
 class DataConfig(StrictConfig):
     schema_version: Literal[3]
     runs_root: Path
@@ -351,10 +376,17 @@ class TrainingConfig(StrictConfig):
     model: ModelConfig
     method: MethodConfig
     distributed: DistributedConfig
+    tracking: TrackingConfig
 
     @model_validator(mode="after")
     def compatible_training(self):
         backend = self.method.backend
+        report_to = backend.report_to
+        if self.tracking.mode == "disabled":
+            if report_to not in ([], ["none"], "none"):
+                raise ValueError("Disabled tracking requires report_to: [none] or []")
+        elif report_to not in (["wandb"], "wandb"):
+            raise ValueError("Enabled W&B tracking requires report_to: [wandb]")
         fsdp = self.distributed.strategy == "fsdp"
         if fsdp != (backend.fsdp is True) or fsdp != (backend.fsdp_config is not None):
             raise ValueError("distributed.strategy and backend.fsdp/fsdp_config must agree")

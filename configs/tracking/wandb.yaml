@@ -1,0 +1,28 @@
+# @package _global_
+tracking:
+  mode: offline
+  project: 3DBootstrapLM
+  entity: null
+  name: ${experiment.name}
+  group: ${experiment.scene}
+  tags:
+  - ${experiment.scene}
+  - ${model.tuning}
+  - ${distributed.strategy}
+  job_type: sft
+  run_id: null
+  new_run_resume: never
+  checkpoint_resume: must
+  log_model: 'false'
+  watch: 'false'
+  settings:
+    disable_code: true
+    disable_git: true
+    console: 'off'
+    quiet: true
+    x_disable_stats: false
+    init_timeout: 60
+method:
+  backend:
+    report_to: [wandb]
+    run_name: ${tracking.name}

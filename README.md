@@ -70,6 +70,44 @@ Hydra 自身日志与配置保存在当前项目的 `outputs/hydra` 或 `outputs
 旧训练输出中的配置快照、启动记录及指纹属于历史记录，不自动改写；
 不要直接把其中的旧绝对路径用于新训练或恢复。已有 checkpoint 的配置和代码指纹校验仍然生效。
 
+### W&B 实验记录
+
+`tracking` 配置组控制 W&B（Weights & Biases）的指标记录。默认 `tracking=disabled`；
+选择 `tracking=wandb` 时默认离线记录，不需要登录，不向服务器同步。
+项目名、账号／团队、实验名称、分组、标签和 SDK 设置都在 `configs/tracking/wandb.yaml` 中显式配置。
+`tracking.entity: null` 表示在线模式使用登录账号的默认空间；Git 提交署名不作为 W&B 账号。
+
+```bash
+# 先展开并检查配置，不加载模型。
+pixi run post-train-hydra --cfg job --resolve tracking=wandb
+
+# 单卡 QLoRA，离线记录。
+CUDA_VISIBLE_DEVICES=0 pixi run post-train-hydra command.action=train \
+  quantization=4bit tracking=wandb \
+  experiment.output_dir=../outputs/post_training/Single-view/qlora_wandb_v1
+
+# 双卡 DDP，同一实验仅由全局主进程记录。
+pixi run post-train-distributed train --config configs/sft_single_view.yaml \
+  distributed=ddp quantization=4bit tracking=wandb \
+  experiment.output_dir=../outputs/post_training/Single-view/ddp_qlora_wandb_v1
+```
+
+在线使用时先执行 `pixi run wandb login`，再在训练命令上增加 `tracking.mode=online`。
+需要指定团队时填写 `tracking.entity=团队名`；密钥通过登录或 `WANDB_API_KEY` 环境变量提供，不写入 YAML。
+W&B 按场景分组，自动接收训练后端的 loss、学习率、梯度范数、验证指标和训练汇总。
+只有 `train` 创建 W&B 实验，`audit`、`prepare` 和 `preview` 不创建实验。
+
+记录位于本次训练目录的 `wandb/`，`wandb_run.json` 保存实验 ID 及归属信息。
+在线新训练使用 `resume=never`，恢复 checkpoint 时读取原 ID 并使用 `resume=must`，
+不会把恢复操作静默变成一个新实验。离线恢复保留同一 ID，SDK 会生成独立的离线记录段；
+它不具备在线模式的服务端续写语义。需要上传时，先同步首段，再用 `pixi run wandb sync --append 路径`
+按时间顺序追加后续记录段。恢复时保留 `wandb_run.json` 和原有 tracking 配置。
+
+当前只记录配置和指标，不上传模型、checkpoint 或代码，不采集终端输出，
+配置中的 `hub_token` 也不写入项目提供给 W&B 的完整配置。
+原生 Transformers 回调需要的 `WANDB_LOG_MODEL=false`、`WANDB_WATCH=false` 在训练期间由 YAML 明确控制，
+结束后恢复原环境。训练成功或异常退出时都会结束该 W&B 实验，避免 Hydra 下一次任务复用上一次实验。
+
 ### 训练方式
 
 | 选择 | Hydra 参数 | 含义 |

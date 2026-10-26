@@ -38,6 +38,12 @@ Hydra 原生入口支持查看配置和顺序批量实验；已有 CLI 支持相
 路径相对于入口 YAML 的目录解析，不随当前工作目录或配置组目录变化。
 批量任务有独立训练输出目录；Hydra 不改变工作目录。
 
+`tracking` 配置组显式选择关闭记录或 W&B 离线／在线模式，并与后端 `report_to` 联合校验。
+只有全局主进程在训练预检查通过后创建 W&B 实验，使用 Transformers 原生回调记录指标。
+训练生命周期管理器保存实验 ID，并在成功或异常退出时结束实验。
+在线 checkpoint 恢复必须续接原实验，离线恢复生成相同 ID 的本地记录段；
+检查、准备和预览不创建实验。模型、checkpoint 和代码不作为 W&B 产物上传。
+
 微调方式（全参数或 LoRA）、4-bit 量化和并行策略（单进程、DDP 或 FSDP2）分别配置。
 4-bit 基础权重由 QwenModel 使用 bitsandbytes 加载，并由 PEFT 准备 LoRA 训练。
 DDP/FSDP2 通过 torchrun 启动，由现有 TRL/Transformers/Accelerate 后端管理；

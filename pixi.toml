@@ -29,6 +29,7 @@ peft = "==0.21.2"
 bootstrap3d-post-training = { path = ".", editable = true }
 hydra-core = ">=1.3.2, <1.4"
 bitsandbytes = ">=0.49, <0.50"
+wandb = ">=0.25, <0.26"
 
 # Keep the existing NumPy version despite numba's older upper bound.
 # This makes the user's existing compatibility exception explicit to Pixi.

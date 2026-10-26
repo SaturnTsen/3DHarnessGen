@@ -28,7 +28,9 @@ def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantizati
         f"distributed={strategy}", f"quantization={quantization}",
         "method.gradient_checkpointing=true", "method.backend.bf16=true",
         "method.backend.fp16=false", "method.backend.eval_strategy=no", "method.backend.do_eval=false",
+        f"tracking={'disabled' if strategy == 'single' else 'wandb'}",
     ])
+    config.tracking.settings.x_disable_stats = True
     config.model.path = tiny_qwen_path
     config.data.runs_root = tmp_path / "runs"
     config.data.validation_fraction = 0
@@ -57,6 +59,7 @@ def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantizati
     env = {**os.environ, "OMP_NUM_THREADS": "2", "TOKENIZERS_PARALLELISM": "false"}
     if devices == 1:
         env["CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0]
+    wandb_id = None
     for step in [1, 2]:
         config.method.max_steps = step
         if step == 2:
@@ -72,3 +75,10 @@ def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantizati
         assert any(torch.count_nonzero(value).item() > 0 for key, value in weights.items() if "lora_B" in key)
         assert (config.experiment.output_dir / "final/preprocessor_config.json").is_file() or (
             config.experiment.output_dir / "final/processor_config.json").is_file()
+        if strategy != "single":
+            state = json.loads((config.experiment.output_dir / "wandb_run.json").read_text())
+            if wandb_id is None:
+                wandb_id = state["id"]
+            assert state["id"] == wandb_id
+            # Exactly one offline segment per launch, despite using two GPUs.
+            assert len(list((config.experiment.output_dir / "wandb").glob("offline-run-*/run-*.wandb"))) == step

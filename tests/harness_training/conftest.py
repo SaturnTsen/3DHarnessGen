@@ -11,6 +11,22 @@ from harness_training.config import load_config
 MODEL_PATH = Path.home() / "models/Qwen3.8-27B"
 
 
+def read_wandb_records(path: Path):
+    """Inspect the actual offline event stream without contacting W&B."""
+    from wandb.proto import wandb_internal_pb2
+    from wandb.sdk.internal.datastore import DataStore
+
+    store = DataStore()
+    store.open_for_scan(str(path))
+    records = []
+    while (payload := store.scan_data()) is not None:
+        record = getattr(wandb_internal_pb2, "Record")()
+        record.ParseFromString(payload)
+        records.append(record)
+    store.close()
+    return records
+
+
 def write_trajectory(root: Path, scene: str = "Single-view", instance: str = "ObjectFactory",
                      *, missing: bool = False, failed_first: bool = False) -> Path:
     from PIL import Image
