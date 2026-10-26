@@ -7,6 +7,8 @@ version = "0.1.0"
 [tasks]
 validate-trajectory = "python tools/validate_trajectory.py"
 post-train = "python -m harness_training.cli"
+post-train-hydra = "python -m harness_training.hydra_cli"
+post-train-distributed = "torchrun --standalone --nnodes=1 --nproc-per-node=2 -m harness_training.cli"
 test-post-training = "python -m pytest tests/harness_training"
 type-check = "python -m pyright --pythonpath .pixi/envs/default/bin/python"
 debug-audit = "debugpy --listen localhost:12888 --wait-for-client -m harness_training.cli audit"
@@ -25,6 +27,8 @@ trl = ">=1.13.0, <2"
 pydantic-yaml = "==1.7.0"
 peft = "==0.21.2"
 bootstrap3d-post-training = { path = ".", editable = true }
+hydra-core = ">=1.3.2, <1.4"
+bitsandbytes = ">=0.49, <0.50"
 
 # Keep the existing NumPy version despite numba's older upper bound.
 # This makes the user's existing compatibility exception explicit to Pixi.

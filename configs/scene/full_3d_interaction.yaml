@@ -1,0 +1,8 @@
+# @package _global_
+experiment:
+  name: sft_full_3d_interaction
+  output_dir: ../outputs/post_training/Full3DInteraction/sft_v1
+  scene: Full3DInteraction
+  seed: 42
+template:
+  max_length: 65536

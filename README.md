@@ -39,6 +39,74 @@ pixi run post-train preview --config configs/sft_single_view.yaml --limit 1
 | ActiveVisual | `configs/sft_active_visual.yaml` |
 | Full3DInteraction | `configs/sft_full_3d_interaction.yaml` |
 
+## Hydra 配置组合
+
+四个场景配置现在通过 Hydra 组合公共参数，训练前仍由 Pydantic 严格校验。
+`configs/data`、`template`、`model`、`method` 保存完整公共参数；`scene` 保存场景差异，
+`tuning`、`quantization`、`distributed` 分别选择参数更新、量化和并行方式。
+组合后的字段必须齐全，不使用代码默认值补参数。原有命令继续可用，并支持 Hydra 覆盖：
+
+```bash
+pixi run post-train audit --config configs/sft_single_view.yaml scene=active_visual
+pixi run post-train preview --config configs/sft_single_view.yaml --limit 1 quantization=4bit
+```
+
+原生 Hydra 入口支持检查配置和批量实验；默认动作是 `audit`，不会启动训练：
+
+```bash
+pixi run post-train-hydra --cfg job --resolve
+pixi run post-train-hydra command.action=audit scene=multi_view
+CUDA_VISIBLE_DEVICES=0 pixi run post-train-hydra --multirun command.action=train method.learning_rate=0.00001,0.00002
+```
+
+批量实验按顺序运行，每个任务的训练输出在配置的输出目录下追加独立的批次及任务目录。
+Hydra 自身日志与配置保存在当前项目的 `outputs/hydra` 或 `outputs/hydra_sweeps`。
+不改变工作目录；数据、模型、输出、恢复路径仍相对于入口 YAML 所在目录解析，
+不相对于某个配置组目录或启动目录解析。`~` 仍指向当前用户的主目录。
+训练目录中的 `resolved_config.yaml` 是完整展开且已解析路径的配置，可独立读取。
+参数值为字符串 `no` 时必须保留引号，避免 Hydra 的 YAML 1.1 将其当作布尔值。
+
+项目迁移后，当前代码、配置和 Pixi editable 安装使用当前项目目录。
+旧训练输出中的配置快照、启动记录及指纹属于历史记录，不自动改写；
+不要直接把其中的旧绝对路径用于新训练或恢复。已有 checkpoint 的配置和代码指纹校验仍然生效。
+
+### 训练方式
+
+| 选择 | Hydra 参数 | 含义 |
+| --- | --- | --- |
+| BF16 LoRA | `tuning=lora quantization=none` | BF16 基础权重，加可训练适配器 |
+| QLoRA | `tuning=lora quantization=4bit` | NF4 基础权重、双重量化、BF16 计算，加可训练适配器 |
+| 全参数 | `tuning=full quantization=none` | 更新未被冻结的基础参数；视觉冻结另由 `model.freeze_vision` 控制 |
+| 单进程 | `distributed=single` | 单卡；显式设置 `device_map` 时可按层放置 |
+| DDP | `distributed=ddp` | 每个进程保存完整模型，处理不同数据并同步梯度 |
+| FSDP2 | `distributed=fsdp` | 分片模型状态，训练 checkpoint 使用分片格式，最终导出收集完整状态 |
+
+精度、量化与并行配置可以组合；不兼容配置在加载权重前报错。
+单卡训练须通过 `CUDA_VISIBLE_DEVICES` 只暴露一张卡，避免后端自动启用 DataParallel：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 pixi run post-train train --config configs/sft_single_view.yaml \
+  quantization=4bit experiment.output_dir=../outputs/post_training/Single-view/qlora_v1
+```
+
+DDP/FSDP 必须通过多进程启动器启动。以下 Pixi 任务在本机启动两个进程：
+
+```bash
+pixi run post-train-distributed train --config configs/sft_single_view.yaml \
+  distributed=ddp quantization=4bit experiment.output_dir=../outputs/post_training/Single-view/ddp_qlora_v1
+pixi run post-train-distributed train --config configs/sft_single_view.yaml \
+  distributed=fsdp experiment.output_dir=../outputs/post_training/Single-view/fsdp_lora_v1
+```
+
+需要其他进程数时，使用 `pixi run python -m torch.distributed.run --standalone --nnodes=1
+--nproc-per-node=N -m harness_training.cli train --config ...`。
+DDP/FSDP 要求 `model.device_map: null`，每个进程使用各自的 GPU。
+FSDP2 使用模型声明的层类型进行分片，使用普通梯度检查点节省中间结果内存。
+当前版本组合下，分片后端的 `activation_checkpointing` 会导致 LoRA 最终导出为空，
+因此配置明确禁止该选项；普通梯度检查点会增加部分参数通信。
+QLoRA + FSDP 要求量化存储类型与 `model.dtype` 一致。
+不要在各个 torchrun 进程内运行 Hydra `--multirun`。
+
 相对路径以 YAML 所在目录为起点，`~` 自动展开。`prepare()` 先读取当前场景的轨迹路径，再按 `data.instances` 筛选，最后将选中的路径传给 `_split_objects(paths)`。该方法用配置种子打乱路径副本，切分后生成训练、验证和测试分配；测试和验证数量向下取整，余下归入训练集。未选中的对象和其他场景不参与划分。同一组选中对象使用相同种子和比例时可复现；选中对象集合变化时可能重新分组。
 
 轨迹格式以 [v3 交付规范](docs/POST_TRAIN_TRAJECTORY_CONTRACT.md) 为准。`tools/validate_trajectory.py` 和训练读取器共用 `harness_training/data/contract.py` 的严格校验，不兼容旧的 `conversations` / `sharegpt_conversion` 数据。
@@ -53,10 +121,10 @@ CLI 的 `audit`、`prepare`、`preview` 和 `train` 默认额外接受 `UNKNOWN`
 
 配置中的参数是起始值，不是对 27B 模型显存占用的保证。默认 BF16 LoRA 的基础模型仍以 BF16 加载，需要足够显存；LoRA 本身不压缩基础模型。先调整模型与运行参数，再执行训练。
 
-`model.device_map` 必须显式填写。常规训练填写 `null`；单进程跨多张 GPU 放置模型时可填写 `balanced`。这是按层分配权重，不是多进程数据并行，不能据此推断多卡训练吞吐或显存余量。
+`model.device_map` 必须显式填写，当前配置组填写 `null`；单进程跨多张 GPU 放置模型时可填写 `balanced`。这是按层分配权重，不能据此推断多进程训练吞吐或显存余量。
 
 ```bash
-pixi run post-train train --config configs/sft_single_view.yaml
+CUDA_VISIBLE_DEVICES=0 pixi run post-train train --config configs/sft_single_view.yaml
 ```
 
 训练会先用 Processor 检查所有选中的样本。过长或无法可靠转换的样本记录后跳过，不自动截断。检查通过后才加载模型权重。每条样本只学习当前选定的 assistant 回复，system、用户请求、历史回复、工具返回、图片与补齐位置均不计算训练误差。

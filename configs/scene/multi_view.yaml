@@ -1,0 +1,6 @@
+# @package _global_
+experiment:
+  name: sft_multi_view
+  output_dir: ../outputs/post_training/Multi-view/sft_v1
+  scene: Multi-view
+  seed: 42

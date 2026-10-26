@@ -5,8 +5,33 @@ import json
 import sys
 from pathlib import Path
 
-from harness_training.config import load_config
+from typing import Literal
+
+from harness_training.config import TrainingConfig, load_config
 from harness_training.training.trainer import Trainer
+
+
+def execute(config: TrainingConfig, command: str, *, limit: int = 1,
+            split: Literal["train", "validation", "test"] = "train", render_only: bool = False):
+    if "UNKNOWN" not in config.data.accepted_statuses:
+        config.data.accepted_statuses.append("UNKNOWN")
+    print("警告：本次运行接受 UNKNOWN 状态的步骤；这些步骤的执行状态尚未确认。", file=sys.stderr)
+    trainer = Trainer(config)
+    if command == "audit":
+        result = trainer.audit()
+    elif command == "prepare":
+        data = trainer.prepare()
+        trainer.save_report(data)
+        result = data.report()
+    elif command == "preview":
+        result = trainer.preview(limit, split=split, encode=not render_only)
+    elif command == "train":
+        result = trainer.run()
+    else:
+        raise ValueError(f"Unsupported command: {command}")
+    import os
+    if int(os.environ.get("RANK", "0")) == 0:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 def main() -> None:
@@ -18,6 +43,7 @@ def main() -> None:
         entry.add_argument("--limit", type=int, default=1, help="Number of preview samples")
         entry.add_argument("--split", choices=["train", "validation", "test"], default="train")
         entry.add_argument("--render-only", action="store_true", help="Preview without pixel/token encoding")
+        entry.add_argument("overrides", nargs="*", help="Hydra overrides, e.g. distributed=ddp method.max_steps=10")
     smoke = commands.add_parser("smoke", help="检查真实数据和 Processor，并运行小模型训练测试")
     smoke.add_argument("--scene", choices=["Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction"])
     smoke.add_argument("--instance", help="指定对象，需同时指定 --scene")
@@ -35,24 +61,10 @@ def main() -> None:
         run_smoke(scene=args.scene, instance=args.instance, include_unknown=args.include_unknown, limit=args.limit)
         return
     try:
-        config = load_config(args.config)
-        if "UNKNOWN" not in config.data.accepted_statuses:
-            config.data.accepted_statuses.append("UNKNOWN")
-        print("警告：本次运行接受 UNKNOWN 状态的步骤；这些步骤的执行状态尚未确认。", file=sys.stderr)
-        trainer = Trainer(config)
-        if args.command == "audit":
-            result = trainer.audit()
-        elif args.command == "prepare":
-            data = trainer.prepare()
-            trainer.save_report(data)
-            result = data.report()
-        elif args.command == "preview":
-            result = trainer.preview(args.limit, split=args.split, encode=not args.render_only)
-        else:
-            result = trainer.run()
+        config = load_config(args.config, args.overrides)
+        execute(config, args.command, limit=args.limit, split=args.split, render_only=args.render_only)
     except (ValueError, OSError) as exc:
         parser.exit(1, f"Error: {exc}\n")
-    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

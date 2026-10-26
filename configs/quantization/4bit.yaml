@@ -1,0 +1,15 @@
+# @package _global_
+method:
+  backend:
+    bf16: true
+    fp16: false
+model:
+  quantization:
+    bnb_4bit_compute_dtype: bfloat16
+    bnb_4bit_quant_storage: bfloat16
+    bnb_4bit_quant_type: nf4
+    bnb_4bit_use_double_quant: true
+    load_in_4bit: true
+    use_gradient_checkpointing: ${method.gradient_checkpointing}
+    gradient_checkpointing_kwargs: ${method.backend.gradient_checkpointing_kwargs}
+    auto_clear_cache: true

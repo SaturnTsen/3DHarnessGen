@@ -47,13 +47,36 @@ class QwenModel(BaseModel):
             trust_remote_code=self.config.trust_remote_code)
         if not model_config.model_type.startswith("qwen"):
             raise ValueError(f"Expected Qwen architecture, got {model_config.model_type}")
+        quantization = self.config.quantization
+        loading = {}
+        if quantization is not None:
+            from transformers import BitsAndBytesConfig
+
+            if not torch.cuda.is_available():
+                raise ValueError("4-bit training requires a CUDA GPU")
+            loading["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=quantization.load_in_4bit,
+                bnb_4bit_quant_type=quantization.bnb_4bit_quant_type,
+                bnb_4bit_use_double_quant=quantization.bnb_4bit_use_double_quant,
+                bnb_4bit_compute_dtype=getattr(torch, quantization.bnb_4bit_compute_dtype),
+                bnb_4bit_quant_storage=getattr(torch, quantization.bnb_4bit_quant_storage),
+            )
         self.model = AutoModelForImageTextToText.from_pretrained(
             str(self.config.path), local_files_only=self.config.local_files_only,
             trust_remote_code=self.config.trust_remote_code, dtype=getattr(torch, self.config.dtype),
             attn_implementation=self.config.attention_implementation,
-            device_map=self.config.device_map,
+            device_map={"": torch.cuda.current_device()} if quantization is not None else self.config.device_map,
+            **loading,
         )
         self.model.config.use_cache = self.config.use_cache
+        if quantization is not None:
+            from peft import prepare_model_for_kbit_training
+
+            self.model = cast("PreTrainedModel", prepare_model_for_kbit_training(
+                self.model, use_gradient_checkpointing=quantization.use_gradient_checkpointing,
+                gradient_checkpointing_kwargs=quantization.gradient_checkpointing_kwargs.model_dump(),
+                auto_clear_cache=quantization.auto_clear_cache,
+            ))
         if self.config.tuning == "lora":
             from peft import LoraConfig, LoraRuntimeConfig, PeftModel, get_peft_model
 

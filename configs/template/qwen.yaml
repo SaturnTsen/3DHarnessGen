@@ -1,0 +1,19 @@
+add_special_tokens: false
+attention_padding_value: 0
+custom_tools:
+  exec: input
+enable_thinking: false
+image_mode: RGB
+label_ignore_index: -100
+max_image_pixels: 262144
+max_length: 32768
+min_image_pixels: 65536
+name: qwen
+padding: false
+padding_side: right
+prompt_add_generation_prompt: true
+return_tensors: pt
+target_add_generation_prompt: false
+token_type_padding_value: 0
+tokenize: false
+truncation: false

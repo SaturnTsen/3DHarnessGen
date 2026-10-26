@@ -1,0 +1,6 @@
+# @package _global_
+experiment:
+  name: sft_single_view
+  output_dir: ../outputs/post_training/Single-view/sft_v1
+  scene: Single-view
+  seed: 42

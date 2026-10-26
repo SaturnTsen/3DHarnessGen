@@ -1,0 +1,11 @@
+# @package _global_
+distributed:
+  strategy: single
+method:
+  backend:
+    ddp_broadcast_buffers: false
+    ddp_find_unused_parameters: false
+    fsdp: null
+    fsdp_config: null
+model:
+  device_map: null

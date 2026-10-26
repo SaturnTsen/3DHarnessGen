@@ -1,0 +1,11 @@
+accepted_statuses:
+- OK
+include_final_reply: true
+instances: null
+missing_images: skip_sample
+runs_root: ../3DHarnessBench/runs
+schema_version: 3
+source_model: gpt-6-astra
+test_fraction: 0.1
+validation_fraction: 0.1
+verify_images: true

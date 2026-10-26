@@ -1,0 +1,21 @@
+# @package _global_
+distributed:
+  strategy: fsdp
+method:
+  backend:
+    ddp_broadcast_buffers: false
+    ddp_find_unused_parameters: false
+    fsdp: true
+    fsdp_config:
+      activation_checkpointing: false
+      auto_wrap_policy: TRANSFORMER_BASED_WRAP
+      cpu_offload: false
+      cpu_ram_efficient_loading: false
+      min_num_params: 0
+      reshard_after_forward: true
+      state_dict_type: SHARDED_STATE_DICT
+      transformer_layer_cls_to_wrap: null
+      version: 2
+  gradient_checkpointing: true
+model:
+  device_map: null

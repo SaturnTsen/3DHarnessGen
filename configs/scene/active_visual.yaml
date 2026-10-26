@@ -1,0 +1,8 @@
+# @package _global_
+experiment:
+  name: sft_active_visual
+  output_dir: ../outputs/post_training/ActiveVisual/sft_v1
+  scene: ActiveVisual
+  seed: 42
+template:
+  max_length: 65536

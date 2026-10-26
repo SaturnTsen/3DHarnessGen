@@ -1,0 +1,18 @@
+command:
+  action: audit
+  limit: 1
+  render_only: false
+  split: train
+defaults:
+- sft_single_view
+- _self_
+hydra:
+  job:
+    chdir: false
+    num: 0
+  run:
+    dir: 
+      ${project_path:outputs/hydra}/${now:%Y%m%d_%H%M%S_%f}/rank_${oc.env:RANK,0}
+  sweep:
+    dir: ${project_path:outputs/hydra_sweeps}/${now:%Y%m%d_%H%M%S_%f}
+    subdir: ${hydra.job.num}

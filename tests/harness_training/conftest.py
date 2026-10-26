@@ -51,6 +51,28 @@ def processor():
     return processor
 
 
+@pytest.fixture(scope="session")
+def tiny_qwen_path(processor, tmp_path_factory):
+    """A real multimodal Qwen architecture with tiny hidden dimensions."""
+    from transformers import AutoConfig, Qwen3_5Config, Qwen3_5ForConditionalGeneration
+
+    cfg = AutoConfig.from_pretrained(MODEL_PATH, local_files_only=True).to_dict()
+    cfg["dtype"] = "float32"
+    cfg["text_config"].update(
+        dtype="float32", hidden_size=32, intermediate_size=64, num_hidden_layers=1,
+        num_attention_heads=2, num_key_value_heads=1, head_dim=16,
+        layer_types=["full_attention"], partial_rotary_factor=1.0,
+        rope_parameters={"rope_type": "default", "rope_theta": 10000, "mrope_section": [2, 3, 3]},
+    )
+    cfg["vision_config"].update(depth=1, hidden_size=32, intermediate_size=64,
+                                num_heads=2, out_hidden_size=32, deepstack_visual_indexes=[])
+    path = tmp_path_factory.mktemp("tiny_qwen")
+    model = Qwen3_5ForConditionalGeneration(Qwen3_5Config.from_dict(cfg))
+    model.save_pretrained(path)
+    processor.save_pretrained(path)
+    return path
+
+
 @pytest.fixture
 def config(tmp_path):
     write_trajectory(tmp_path / "runs")

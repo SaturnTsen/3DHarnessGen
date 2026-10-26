@@ -122,6 +122,19 @@ class Trainer:
         return {**payload, "fingerprint": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()}
 
     def run(self) -> Metrics:
+        import os
+
+        # Revalidate programmatic edits before loading the Processor or weights.
+        TrainingConfig.model_validate(self.config.model_dump())
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        strategy = self.config.distributed.strategy
+        if (world_size > 1) != (strategy != "single"):
+            raise ValueError("single requires one process; ddp/fsdp require torchrun with at least two processes")
+        if strategy == "single" and not self.config.method.use_cpu and self.config.model.device_map is None:
+            import torch
+
+            if torch.cuda.device_count() > 1:
+                raise ValueError("single requires one visible GPU: set CUDA_VISIBLE_DEVICES, or select ddp/fsdp")
         resume_from = self.config.method.resume_from
         output = self.config.experiment.output_dir
         if resume_from is None and ((output / "final").exists() or list((output / "checkpoints").glob("checkpoint-*"))):
@@ -141,7 +154,6 @@ class Trainer:
                 raise ValueError("Data, model, template, or training settings changed since this checkpoint")
         if not data.train:
             raise ValueError(f"No usable training samples after preflight: {data.report()}")
-        import os
         if int(os.environ.get("RANK", "0")) == 0:
             self.save_report(data)
             save_config(self.config, output / "resolved_config.yaml")

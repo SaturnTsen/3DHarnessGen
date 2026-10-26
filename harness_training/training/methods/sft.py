@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import fields
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from accelerate.utils import FullyShardedDataParallelPlugin
     from trl import SFTConfig
 
 from harness_training.config import MethodConfig
@@ -74,7 +75,11 @@ class SFTMethod(BaseTrainingMethod):
         if cfg.backend.do_eval:
             metrics.update(backend.evaluate())
         backend.save_state()
+        # FSDP gathers final weights collectively; every rank must participate.
+        if backend.is_fsdp_enabled:
+            fsdp_plugin = cast("FullyShardedDataParallelPlugin", backend.accelerator.state.fsdp_plugin)
+            fsdp_plugin.set_state_dict_type("FULL_STATE_DICT")
+        backend.save_model(str(output_dir / "final"))
         if backend.is_world_process_zero():
-            model.save(output_dir / "final")
             backend.save_metrics("train", metrics)
         return metrics

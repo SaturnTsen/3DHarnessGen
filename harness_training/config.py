@@ -147,6 +147,34 @@ class ModelConfig(StrictConfig):
     local_files_only: bool
     trust_remote_code: bool
     use_cache: Literal[False]
+    quantization: QuantizationConfig | None
+
+
+class QuantizationConfig(StrictConfig):
+    load_in_4bit: Literal[True]
+    bnb_4bit_quant_type: Literal["nf4", "fp4"]
+    bnb_4bit_use_double_quant: bool
+    bnb_4bit_compute_dtype: Literal["bfloat16", "float16", "float32"]
+    bnb_4bit_quant_storage: Literal["bfloat16", "float16", "float32"]
+    use_gradient_checkpointing: bool
+    gradient_checkpointing_kwargs: CheckpointingConfig
+    auto_clear_cache: bool
+
+
+class DistributedConfig(StrictConfig):
+    strategy: Literal["single", "ddp", "fsdp"]
+
+
+class FSDPConfig(StrictConfig):
+    version: Literal[2]
+    auto_wrap_policy: Literal["TRANSFORMER_BASED_WRAP"]
+    transformer_layer_cls_to_wrap: list[str] | None
+    min_num_params: Literal[0]
+    state_dict_type: Literal["SHARDED_STATE_DICT", "FULL_STATE_DICT"]
+    cpu_ram_efficient_loading: bool
+    cpu_offload: bool
+    activation_checkpointing: Literal[False]
+    reshard_after_forward: bool
 
 
 class CheckpointingConfig(StrictConfig):
@@ -244,8 +272,8 @@ class SFTBackendConfig(StrictConfig):
     ddp_static_graph: bool | None
     ddp_backend: str | None
     ddp_timeout: int
-    fsdp: str | None
-    fsdp_config: JsonObject | str | None
+    fsdp: Literal[True] | None
+    fsdp_config: FSDPConfig | None
     deepspeed: JsonObject | str | None
     debug: str | list[str]
     skip_memory_metrics: bool
@@ -322,21 +350,59 @@ class TrainingConfig(StrictConfig):
     template: TemplateConfig
     model: ModelConfig
     method: MethodConfig
+    distributed: DistributedConfig
+
+    @model_validator(mode="after")
+    def compatible_training(self):
+        backend = self.method.backend
+        fsdp = self.distributed.strategy == "fsdp"
+        if fsdp != (backend.fsdp is True) or fsdp != (backend.fsdp_config is not None):
+            raise ValueError("distributed.strategy and backend.fsdp/fsdp_config must agree")
+        if self.distributed.strategy != "single" and self.model.device_map is not None:
+            raise ValueError("DDP/FSDP require model.device_map: null")
+        quantization = self.model.quantization
+        if quantization is not None:
+            if self.model.tuning != "lora" or self.method.use_cpu:
+                raise ValueError("4-bit training requires LoRA and GPU execution")
+            if self.model.device_map is not None:
+                raise ValueError("4-bit training requires model.device_map: null; each process selects its GPU")
+            if quantization.use_gradient_checkpointing != self.method.gradient_checkpointing:
+                raise ValueError("Quantization and method gradient_checkpointing must agree")
+            if quantization.gradient_checkpointing_kwargs != backend.gradient_checkpointing_kwargs:
+                raise ValueError("Quantization and backend gradient_checkpointing_kwargs must agree")
+            if fsdp and quantization.bnb_4bit_quant_storage != self.model.dtype:
+                raise ValueError("FSDP quantization storage must match model.dtype")
+        return self
 
 
-def load_config(path: str | Path) -> TrainingConfig:
+def load_config(path: str | Path, overrides: list[str] | None = None) -> TrainingConfig:
+    from hydra import compose, initialize_config_dir
+
     path = Path(path).expanduser().resolve()
-    config = parse_yaml_raw_as(TrainingConfig, path.read_text(encoding="utf-8"))
+    with initialize_config_dir(version_base="1.3", config_dir=str(path.parent)):
+        composed = compose(config_name=path.name, overrides=overrides or [])
+    return parse_config(composed, path.parent)
+
+
+def parse_config(composed, directory: Path) -> TrainingConfig:
+    from omegaconf import OmegaConf
+
+    config = parse_yaml_raw_as(TrainingConfig, OmegaConf.to_yaml(composed, resolve=True))
     for section, field in [(config.experiment, "output_dir"), (config.data, "runs_root"),
                            (config.model, "path"),
                            (config.method, "resume_from")]:
         value = getattr(section, field)
         if value is not None:
             expanded = value.expanduser()
-            setattr(section, field, (expanded if expanded.is_absolute() else path.parent / expanded).resolve())
+            setattr(section, field, (expanded if expanded.is_absolute() else directory / expanded).resolve())
     return config
 
 
 def save_config(config: TrainingConfig, path: Path) -> None:
+    from ruamel.yaml import YAML
+
+    # Hydra uses YAML 1.1: quote strings such as "no" to preserve them on reload.
+    writer = YAML()
+    writer.version = (1, 1)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(to_yaml_str(config), encoding="utf-8")
+    path.write_text(to_yaml_str(config, custom_yaml_writer=writer), encoding="utf-8")

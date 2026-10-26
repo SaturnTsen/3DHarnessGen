@@ -29,7 +29,20 @@
 - `preview`：加载 Processor，展示选定历史、目标、图片与 token 数；不加载权重。
 - `train`：先预编码检查样本，再加载权重执行 SFT。
 
-配置使用 Pydantic 和 pydantic_yaml，字段必须显式填写。`data.schema_version` 固定为 3；四份配置均包含 custom 映射。TRL、LoRA 和 adapter 参数完整性检查保持原有行为。所有依赖继续由 Pixi 管理。
+配置由 Hydra 组合场景、数据、模板、模型、训练方法、微调、量化和并行配置组，
+组合结果使用 Pydantic 和 pydantic_yaml 严格校验与保存。字段必须显式填写。
+`data.schema_version` 固定为 3；四份配置均包含 custom 映射。
+TRL、LoRA 和 adapter 参数完整性检查保持原有行为。所有依赖继续由 Pixi 管理。
+
+Hydra 原生入口支持查看配置和顺序批量实验；已有 CLI 支持相同的配置组选择和字段覆盖。
+路径相对于入口 YAML 的目录解析，不随当前工作目录或配置组目录变化。
+批量任务有独立训练输出目录；Hydra 不改变工作目录。
+
+微调方式（全参数或 LoRA）、4-bit 量化和并行策略（单进程、DDP 或 FSDP2）分别配置。
+4-bit 基础权重由 QwenModel 使用 bitsandbytes 加载，并由 PEFT 准备 LoRA 训练。
+DDP/FSDP2 通过 torchrun 启动，由现有 TRL/Transformers/Accelerate 后端管理；
+配置校验拒绝与 device_map 的冲突，运行前检查进程数与所选策略是否一致。
+FSDP2 训练 checkpoint 保存分片，最终模型导出由全部进程参加完整状态收集，主进程落盘。
 
 保存内容包括配置快照、源文件及图片指纹、包代码指纹、对象划分、样本 ID、拒绝原因、checkpoint 和最终模型。LoRA 保存适配器与 Processor。恢复时拒绝数据、模板、模型或关键训练设置变化。
 
