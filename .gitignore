@@ -1,8 +1,14 @@
+# Data
 /3DHarnessBench
 /data
+
 # pixi environments
+/.pixi
 .pixi/*
 !.pixi/config.toml
+
+# IDE
+/.vscode
 
 # post-training outputs and Python build artifacts
 /outputs/
