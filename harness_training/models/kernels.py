@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import inspect
-from importlib import import_module
 from importlib.metadata import version
+
+
+def fused_sdpa():
+    """Keep the quadratic-memory math backend disabled without global changes."""
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    return sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION,
+                        SDPBackend.CUDNN_ATTENTION])
 
 
 def validate_long_context_kernels() -> None:
@@ -13,13 +20,12 @@ def validate_long_context_kernels() -> None:
     import torch
     from causal_conv1d import causal_conv1d_fn
     from fla.ops.gated_delta_rule import chunk_gated_delta_rule
-    flash_attn_func = import_module("flash_attn").flash_attn_func
     from transformers.models.qwen3_5 import modeling_qwen3_5
 
     if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
         raise ValueError("Optimized long-context training requires a BF16-capable CUDA GPU")
-    if not callable(flash_attn_func):
-        raise ValueError("flash-attn did not expose flash_attn_func")
+    if not torch.backends.cuda.is_flash_attention_available():
+        raise ValueError("This PyTorch build does not include CUDA Flash SDPA support")
     # Transformers captures the selected implementation when its module imports.
     # Checking imports alone would miss an earlier, cached fallback selection.
     for wrapper, expected in [

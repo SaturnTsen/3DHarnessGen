@@ -17,7 +17,7 @@ NF4 四位 QLoRA、BF16 计算和量化存储、冻结视觉模块、双卡 FSDP
 
 ## GPU 内存优化
 
-- `require_optimized_kernels: true`：训练前导入 FlashAttention-2、FLA、causal-conv1d，并核对 Transformers 实际选择的线性注意力及卷积实现；发现参考路径或不可导入的扩展直接报错。`audit` 和 `preview` 不要求这些训练内核。
+- `require_optimized_kernels: true`：训练前检查 PyTorch 内置 CUDA Flash SDPA 支持，导入 FLA、causal-conv1d，并核对 Transformers 实际选择的线性注意力及卷积实现。完整注意力使用 `attention_implementation: sdpa`，仅允许 Flash、memory-efficient 或 cuDNN 融合后端；没有可用融合内核时明确报错，不回退到 math。语言模型前向与检查点反向重算、视觉编码都使用相同限制。`audit` 和 `preview` 不要求这些训练内核。
 - `activation_dtype: bfloat16`：嵌入输出和传入文本解码器的隐藏状态显式使用 BF16，避免 PEFT 对未量化权重的 FP32 转换将残差流也提升为 FP32。FP32 权重保留原训练语义。
 - `checkpoint_group_size: 8`：外层每 8 个解码层一组重算，组内保留 Transformers 的逐层非重入检查点。设置 `null` 可关闭外层分组以做对照。不会切断历史梯度。
 - `mlp_chunk_size: 2048`：仅将逐词元的前馈网络分块，训练时对每块重算；注意力仍看到完整历史。
@@ -30,7 +30,7 @@ FSDP 只逐层包装 `LongContextQwenDecoderLayer`。视觉权重属于外层 FS
 
 ## 在目标服务器安装与检查
 
-使用现有 Pixi 环境。服务器需要与锁定 PyTorch 相容的 CUDA Toolkit、`nvcc` 和 C++ 编译器；两个 CUDA 扩展按锁文件构建，不运行 pip 安装。
+使用现有 Pixi 环境。服务器需要与锁定 PyTorch 相容的 CUDA Toolkit、`nvcc` 和 C++ 编译器；causal-conv1d 的 CUDA 扩展按锁文件构建，不运行 pip 安装。
 
 ```bash
 MAX_JOBS=4 pixi install --locked
@@ -50,7 +50,7 @@ pixi run post-train audit --config configs/sft_interaction_mix_27b_fsdp.yaml
 pixi run post-train preview --config configs/sft_interaction_mix_27b_fsdp.yaml --limit 1
 ```
 
-本次只更新了依赖声明与锁文件，未在开发机安装新加入的 FlashAttention 扩展。
+无需安装或编译外部 `flash-attn` 包；SDPA 使用 PyTorch 自带的 CUDA 内核。内核检查通过只说明构建支持和线性注意力分派正确，具体输入能否使用融合 SDPA 仍在首次前向/反向时检查。
 
 ## 由目标服务器执行的测试
 

@@ -94,7 +94,8 @@ def test_nested_checkpoints_preserve_loss_and_lora_gradients(device):
         config.text_config.linear_key_head_dim = 16
         config.text_config.linear_value_head_dim = 16
         config.harness_long_context["activation_dtype"] = "bfloat16"
-        config._attn_implementation = "flash_attention_2"
+        config.harness_long_context["require_optimized_kernels"] = True
+        config._attn_implementation = "sdpa"
     reference = Qwen3_5ForConditionalGeneration(deepcopy(config))
     optimized = LongContextQwenForConditionalGeneration(deepcopy(config))
     assert reference.state_dict().keys() == optimized.state_dict().keys()
@@ -165,11 +166,27 @@ def test_48k_rejects_unsafe_or_incompatible_settings(override):
 def test_long_context_options_are_explicit():
     cfg = load_config("configs/sft_interaction_mix_27b_fsdp.yaml")
     assert cfg.template.max_length == 49152
+    assert cfg.model.attention_implementation == "sdpa"
     for field in LongContextConfig.model_fields:
         payload = cfg.model_dump()
         del payload["method"]["long_context"][field]
         with pytest.raises(ValueError):
             TrainingConfig.model_validate(payload)
+
+
+def test_fused_sdpa_scope_disables_math_and_restores_backend_flags():
+    from harness_training.models.kernels import fused_sdpa
+
+    previous = (torch.backends.cuda.math_sdp_enabled(), torch.backends.cuda.flash_sdp_enabled(),
+                torch.backends.cuda.mem_efficient_sdp_enabled(), torch.backends.cuda.cudnn_sdp_enabled())
+    with fused_sdpa():
+        assert not torch.backends.cuda.math_sdp_enabled()
+        assert torch.backends.cuda.flash_sdp_enabled()
+        assert torch.backends.cuda.mem_efficient_sdp_enabled()
+        assert torch.backends.cuda.cudnn_sdp_enabled()
+    actual = (torch.backends.cuda.math_sdp_enabled(), torch.backends.cuda.flash_sdp_enabled(),
+              torch.backends.cuda.mem_efficient_sdp_enabled(), torch.backends.cuda.cudnn_sdp_enabled())
+    assert actual == previous
 
 
 def test_long_context_sft_save_resume(config, tiny_qwen_path):

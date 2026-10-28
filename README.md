@@ -292,7 +292,8 @@ method:
 `configs/sft_interaction_mix_27b_fsdp.yaml` 启用，两组任务分别训练、分别保存。
 两份入口复用 `model: qwen38_27b`，在入口中覆盖优化选项；`method.long_context` 明确配置重算和分块。
 `model/` 与四个单场景 YAML 保持原有职责，不加入优化设置，也不另设 `_h100_48k.yaml`。
-采用 NF4 QLoRA、FSDP2、原生注意力内核、两级 GPU 重算、前馈分块及图片分批编码，不使用 CPU 卸载。
+采用 NF4 QLoRA、FSDP2、PyTorch SDPA 融合注意力、两级 GPU 重算、前馈分块及图片分批编码，不使用 CPU 卸载。
+不依赖外部 `flash-attn`；线性注意力仍使用 FLA 和 causal-conv1d，SDPA 禁止回退到 math 后端。
 该路径由显式模型子类实现分块损失，不运行时替换 `forward`。
 安装、内核检查、测试和试跑命令见 [H100 48k 说明](docs/H100_48K_TRAINING.md)。
 本地仅完成静态检查，H100 训练与显存测试待目标服务器执行。

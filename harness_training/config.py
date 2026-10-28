@@ -428,8 +428,8 @@ class TrainingConfig(StrictConfig):
                 raise ValueError("long_context requires use_reentrant: false")
             if backend.activation_offloading or (backend.fsdp_config is not None and backend.fsdp_config.cpu_offload):
                 raise ValueError("long_context does not permit CPU offloading")
-            if long_context.require_optimized_kernels and self.model.attention_implementation != "flash_attention_2":
-                raise ValueError("Optimized long_context requires attention_implementation: flash_attention_2")
+            if long_context.require_optimized_kernels and self.model.attention_implementation != "sdpa":
+                raise ValueError("Optimized long_context requires attention_implementation: sdpa")
             if backend.fsdp_config is not None and backend.fsdp_config.transformer_layer_cls_to_wrap not in (
                 None, ["LongContextQwenDecoderLayer"],
             ):

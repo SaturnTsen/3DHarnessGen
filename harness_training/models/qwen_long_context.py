@@ -50,6 +50,7 @@ from transformers.utils.generic import can_return_tuple
 
 from harness_training.config import LongContextConfig
 from .chunked_loss import chunked_cross_entropy
+from .kernels import fused_sdpa
 
 
 class ActivationDtypeEmbedding(nn.Embedding):
@@ -87,6 +88,18 @@ class LongContextQwenDecoderLayer(Qwen3_5DecoderLayer):
     def __init__(self, config, layer_idx: int, options: LongContextConfig):
         super().__init__(config, layer_idx)
         self.mlp = ChunkedQwenMLP(config, options.mlp_chunk_size)
+        self.require_fused_sdpa = options.require_optimized_kernels
+
+    def forward(self, hidden_states, position_embeddings, attention_mask=None,
+                position_ids=None, past_key_values=None, **kwargs: Any):
+        # The scope must live inside forward: checkpoint backward invokes this
+        # again after the outer training context has already exited.
+        if self.require_fused_sdpa:
+            with fused_sdpa():
+                return super().forward(hidden_states, position_embeddings, attention_mask,
+                                       position_ids, past_key_values, **kwargs)
+        return super().forward(hidden_states, position_embeddings, attention_mask,
+                               position_ids, past_key_values, **kwargs)
 
 
 class LongContextQwenTextModel(Qwen3_5TextModel):
@@ -185,6 +198,12 @@ class LongContextQwenModel(Qwen3_5Model):
 
     @can_return_tuple
     def get_image_features(self, pixel_values, image_grid_thw=None, **kwargs):
+        if self.options.require_optimized_kernels:
+            with fused_sdpa():
+                return self._image_microbatches(pixel_values, image_grid_thw, **kwargs)
+        return self._image_microbatches(pixel_values, image_grid_thw, **kwargs)
+
+    def _image_microbatches(self, pixel_values, image_grid_thw, **kwargs):
         if image_grid_thw is None:
             raise ValueError("Image microbatching requires image_grid_thw")
         # A video/one image is never split internally; its patch ordering is unchanged.
