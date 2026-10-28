@@ -1,18 +1,45 @@
+# Inherit common configuration groups only; never inherit another task entrypoint.
+defaults:
+- data: trajectory
+- template: qwen
+- model: qwen38_27b
+- method: sft
+- scene: single_view
+- tuning: lora
+- quantization: none
+- distributed: single
+- tracking: wandb
+- _self_
+schema_version: 1
+method:
+  long_context: null
+  batch_size: 1
+  dataloader_workers: 0
+  epochs: 1.0
+  eval_steps: 10
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  learning_rate: 2.0e-05
+  logging_steps: 1
+  max_steps: -1
+  name: sft
+  resume_from: null
+  save_steps: 10
+  save_total_limit: 2
+  use_cpu: false
+  warmup_ratio: 0.03
+  weight_decay: 0.01
 command:
   action: audit
   limit: 1
   render_only: false
   split: train
-defaults:
-- sft_single_view
-- _self_
 hydra:
   job:
     chdir: false
     num: 0
   run:
-    dir: 
-      ${project_path:outputs/hydra}/${now:%Y%m%d_%H%M%S_%f}/rank_${oc.env:RANK,0}
+    dir: ${project_path:outputs/hydra}/${now:%Y%m%d_%H%M%S_%f}/rank_${oc.env:RANK,0}
   sweep:
     dir: ${project_path:outputs/hydra_sweeps}/${now:%Y%m%d_%H%M%S_%f}
     subdir: ${hydra.job.num}

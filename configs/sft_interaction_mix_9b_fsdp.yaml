@@ -1,19 +1,48 @@
+# Inherit common configuration groups only; never inherit another task entrypoint.
 defaults:
-- sft_single_view_9b_fsdp
+- data: trajectory
+- template: qwen
+- model: qwen35_9b
+- method: sft
+- scene: active_visual
+- tuning: lora
+- quantization: 4bit
+- distributed: fsdp
+- tracking: wandb
 - _self_
+schema_version: 1
 experiment:
   name: sft_interaction_mix_qwen35_9b_qlora_fsdp
+  output_dir: ../outputs/post_training/Interaction-mix/qwen35_9b_qlora_fsdp_epoch1_v1
   scene:
   - ActiveVisual
   - Full3DInteraction
-  output_dir: ../outputs/post_training/Interaction-mix/qwen35_9b_qlora_fsdp_epoch1_v1
 data:
-  # Pool both scenes and split by object before selecting training replies.
-  files: null
-  image_root: null
-  instances: null
+  accepted_statuses:
+  - OK
+  - UNKNOWN
 method:
+  long_context: null
+  batch_size: 1
+  dataloader_workers: 0
+  epochs: 1.0
+  eval_steps: 10
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  learning_rate: 2.0e-05
+  logging_steps: 1
+  max_steps: -1
+  name: sft
   resume_from: null
+  save_steps: 10
+  save_total_limit: 2
+  use_cpu: false
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  backend:
+    loss_type: chunked_nll
+    prediction_loss_only: true
+    skip_memory_metrics: false
 tracking:
   group: Interaction-mix
   tags:

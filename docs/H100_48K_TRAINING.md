@@ -9,7 +9,7 @@
 | Single-view + Multi-view | `configs/sft_view_mix_27b_fsdp.yaml` |
 | ActiveVisual + Full3DInteraction | `configs/sft_interaction_mix_27b_fsdp.yaml` |
 
-两组任务独立训练、分别保存，均复用 `model: qwen38_27b` 的基础模型路径和 49,152 长度预算。优化只在这两份配置中启用：模型参数由各入口的 `model` 段覆盖，重算和分块参数放在 `method.long_context`。`model/` 和四个单场景 YAML 不启用本次优化。
+两组任务独立训练、分别保存，每份 YAML 只通过 `defaults` 引用公共配置组，不继承任何其他任务入口。两份入口均直接选择 `model: qwen38_27b` 和 `distributed: fsdp`，复用基础模型路径及 49,152 长度预算；训练轮数、批次和学习率等任务参数显式写在各自文件中。优化只在这两份配置中启用，重算和分块参数放在 `method.long_context`。四个单场景 YAML 同样只引用公共配置组，保留各自原有的训练设置。
 
 NF4 四位 QLoRA、BF16 计算和量化存储、冻结视觉模块、双卡 FSDP2、每卡批次 1、梯度累积 8、右侧补齐、不拼接样本、不截断。参数与激活都不卸载到 CPU；数据读取和模型初始化仍使用主机内存。
 

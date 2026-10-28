@@ -1,8 +1,9 @@
+# Inherit common configuration groups only; never inherit another task entrypoint.
 defaults:
-- data/trajectory
-- template/qwen
+- data: trajectory
+- template: qwen
 - model: qwen38_27b
-- method/sft
+- method: sft
 - scene: full_3d_interaction
 - tuning: lora
 - quantization: none
@@ -10,3 +11,21 @@ defaults:
 - tracking: wandb
 - _self_
 schema_version: 1
+method:
+  long_context: null
+  batch_size: 1
+  dataloader_workers: 0
+  epochs: 1.0
+  eval_steps: 10
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  learning_rate: 2.0e-05
+  logging_steps: 1
+  max_steps: -1
+  name: sft
+  resume_from: null
+  save_steps: 10
+  save_total_limit: 2
+  use_cpu: false
+  warmup_ratio: 0.03
+  weight_decay: 0.01

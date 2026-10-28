@@ -1,15 +1,26 @@
-# Target: two H100 GPUs with at least 80 GB each; 4-bit QLoRA + FSDP2.
+# Inherit common configuration groups only; never inherit another task entrypoint.
 defaults:
-- sft_interaction_mix_9b_fsdp
-- override model: qwen38_27b
+- data: trajectory
+- template: qwen
+- model: qwen38_27b
+- method: sft
+- scene: active_visual
+- tuning: lora
+- quantization: 4bit
+- distributed: fsdp
+- tracking: wandb
 - _self_
+schema_version: 1
 experiment:
   name: sft_interaction_mix_qwen38_27b_qlora_fsdp
   output_dir: ../outputs/post_training/Interaction-mix/qwen38_27b_qlora_fsdp_epoch1_v1
-model:
-  attention_implementation: sdpa
-  device_map: null
-  freeze_vision: true
+  scene:
+  - ActiveVisual
+  - Full3DInteraction
+data:
+  accepted_statuses:
+  - OK
+  - UNKNOWN
 method:
   long_context:
     require_optimized_kernels: true
@@ -19,14 +30,33 @@ method:
     vision_batch_size: 2
     loss_chunk_size: 256
   batch_size: 1
+  dataloader_workers: 0
+  epochs: 1.0
+  eval_steps: 10
   gradient_accumulation_steps: 8
   gradient_checkpointing: true
+  learning_rate: 2.0e-05
+  logging_steps: 1
+  max_steps: -1
+  name: sft
+  resume_from: null
+  save_steps: 10
+  save_total_limit: 2
+  use_cpu: false
+  warmup_ratio: 0.03
+  weight_decay: 0.01
   backend:
-    loss_type: nll
-    prediction_loss_only: true
     dataloader_pin_memory: false
-    activation_offloading: false
     fsdp_config:
-      cpu_offload: false
       transformer_layer_cls_to_wrap:
       - LongContextQwenDecoderLayer
+    prediction_loss_only: true
+    skip_memory_metrics: false
+tracking:
+  group: Interaction-mix
+  tags:
+  - ActiveVisual
+  - Full3DInteraction
+  - mix
+  - lora
+  - fsdp

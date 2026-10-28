@@ -58,8 +58,8 @@ pixi run post-train-distributed train --config configs/sft_interaction_mix_9b_fs
 ```
 
 对应的 27B 混合配置为 `configs/sft_view_mix_27b_fsdp.yaml` 和
-`configs/sft_interaction_mix_27b_fsdp.yaml`，分别继承上述两份 9B 配置的数据、模板和对象划分。
-使用 `model=qwen38_27b`，由 `configs/model/qwen38_27b.yaml` 指定 `model.path: ~/models/Qwen3.8-27B`；
+`configs/sft_interaction_mix_27b_fsdp.yaml`，数据、模板和对象划分分别与上述两份 9B 配置一致。
+两份 YAML 通过 `defaults` 选择公共模型配置 `qwen38_27b`，基础模型路径为 `~/models/Qwen3.8-27B`，不继承任何 9B 任务入口；
 实验名与输出目录均使用 `qwen38_27b`。该目录配置中的架构字段为 `qwen3_5`，基础架构为 `Qwen3_5ForConditionalGeneration`，训练使用其显式子类 `LongContextQwenForConditionalGeneration`。
 目标硬件为两张每卡至少 80 GB 的 H100，采用 NF4 四位量化、BF16 计算和量化存储、
 FSDP2 分片、两级梯度检查点与模型内分块损失（后端填写 `loss_type: nll`），每卡批次 1、梯度累积 8，
@@ -74,18 +74,22 @@ CUDA_VISIBLE_DEVICES=0,1 PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THR
   pixi run post-train-distributed train --config configs/sft_interaction_mix_27b_fsdp.yaml
 ```
 
-## Hydra 配置组合
+## 独立配置与命令行覆盖
 
-四个场景配置现在通过 Hydra 组合公共参数，训练前仍由 Pydantic 严格校验。
-`configs/data`、`template`、`model`、`method` 保存完整公共参数；`scene` 保存场景差异，
-`tuning`、`quantization`、`distributed` 分别选择参数更新、量化和并行方式。
-组合后的字段必须齐全，不使用代码默认值补参数。原有命令继续可用，并支持 Hydra 覆盖：
+`configs/*.yaml` 的所有顶层入口只通过 `defaults` 引用公共配置组，任务入口之间不互相继承。
+模型、数据、模板、训练后端、并行和 W&B 的公共参数保留在相应子目录中；实验名称、输出目录、
+场景选择，以及训练轮数、步数上限、批次、学习率等任务参数直接写在各自入口中。
+训练前由 Pydantic 严格校验完整组合结果，不使用代码默认值补参数。
+修改一个任务入口不会影响其他入口；例如 Blender 的训练轮数直接在
+`configs/sft_blender_9b_fsdp.yaml` 的 `method.epochs` 中设置，当前为 `2.0`。
 
-训练总序列长度预算统一在模型配置的 `max_length` 中设置：
-`configs/model/qwen35_9b.yaml` 为 96K（98,304 token），
-`configs/model/qwen38_27b.yaml` 对应 27B，为 48K（49,152 token）。
-`configs/model/qwen.yaml` 只保存两者共用的模型设置，不单独作为训练模型入口。
-`configs/template/qwen.yaml` 通过 `${model.max_length}` 引用该值，场景和实验配置不再另写长度预算。
+`distributed=single`、`tracking=disabled`、`model=qwen35_9b` 等写法由 Hydra 原生处理，
+用于替换 `defaults` 中选中的公共配置。字段覆盖如 `method.epochs=1`、`tracking.entity=...` 同样可用。
+
+训练总序列长度预算由 `defaults` 选中的公共模型配置的 `max_length` 指定，入口可通过
+`model.max_length` 显式覆盖。`configs/model/qwen35_9b.yaml` 为 96K（98,304 token），
+`configs/model/qwen38_27b.yaml` 为 48K（49,152 token）；短程实验配置以其显式覆盖值为准。
+公共模板通过 `${model.max_length}` 引用该值，无需重复修改。
 这里的长度包含历史、图片 token 和当前目标回复，不是生成时的 `max_new_tokens`。
 命令行可用 `model.max_length=...` 显式调整；这些预算不代表已完成对应长度的显存实测。
 
@@ -115,9 +119,9 @@ Hydra 自身日志与配置保存在当前项目的 `outputs/hydra` 或 `outputs
 
 ### W&B 实验记录
 
-`tracking` 配置组控制 W&B（Weights & Biases）的指标记录。四个场景默认使用 `tracking=wandb`、
-`tracking.mode=online`，正式训练自动向 W&B 的 `3DHarnessGen` 项目记录配置和指标。
-项目名、账号／团队、实验名称、分组、标签和 SDK 设置都在 `configs/tracking/wandb.yaml` 中显式配置。
+每份入口通过 `defaults` 选择 W&B（Weights & Biases）公共配置，任务差异写在自己的 `tracking` 段。
+四个场景默认使用 `tracking=wandb`、`tracking.mode=online`，正式训练自动向 W&B 的 `3DHarnessGen` 项目记录配置和指标。
+公共项目名、账号／团队和 SDK 设置保留在 `configs/tracking/wandb.yaml`，也可在任务入口或命令行覆盖。
 `tracking.entity: null` 表示在线模式使用登录账号的默认空间；Git 提交署名不作为 W&B 账号。
 
 ```bash
@@ -191,7 +195,7 @@ QLoRA + FSDP 要求量化存储类型与 `model.dtype` 一致。
 不要在各个 torchrun 进程内运行 Hydra `--multirun`。
 
 27B 的 Single-view 分块损失与双卡 FSDP2 短训配置如下，保留完整输入和图片，
-当前配置继承 qwen38 的四位 QLoRA 与模型内分块损失，梯度累积为 1，最多更新 3 步，并关闭验证和在线记录：
+当前配置直接选择公共 qwen38 模型、四位 QLoRA 和 FSDP 配置，在自身文件中设置梯度累积为 1，最多更新 3 步，并关闭验证和在线记录：
 
 ```bash
 pixi run post-train-distributed train --config configs/sft_single_view_fsdp_trial.yaml
@@ -220,7 +224,7 @@ PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
   pixi run post-train-distributed train --config configs/sft_single_view_9b_fsdp.yaml
 ```
 
-`configs/model/qwen35_9b.yaml` 使用下载到 `~/models/Qwen3.5-9B` 的官方多模态权重。
+9B 入口在各自的 `model.path` 中指定下载到 `~/models/Qwen3.5-9B` 的官方多模态权重。
 `configs/sft_single_view_9b.yaml` 为 Single-view 的双卡 DDP + NF4 QLoRA 配置，
 基础计算使用 BF16，视觉模块冻结；沿用完整脚本、图片及对象划分规则，默认在线记录 W&B。
 使用 TRL 原生 `loss_type: chunked_nll` 分块计算相同的交叉熵，避免完整词表分数矩阵导致显存不足。
@@ -290,8 +294,9 @@ method:
 
 优化仅由 `configs/sft_view_mix_27b_fsdp.yaml` 和
 `configs/sft_interaction_mix_27b_fsdp.yaml` 启用，两组任务分别训练、分别保存。
-两份入口复用 `model: qwen38_27b`，在入口中覆盖优化选项；`method.long_context` 明确配置重算和分块。
-`model/` 与四个单场景 YAML 保持原有职责，不加入优化设置，也不另设 `_h100_48k.yaml`。
+两份入口分别通过 `defaults` 选择公共 Qwen 27B 模型与 FSDP 配置，优化参数直接写在各自入口中；
+`method.long_context` 明确配置重算和分块。四个单场景 YAML 同样只引用公共配置组，保留各自原有的训练设置，
+不继承其他任务入口，也不另设 `_h100_48k.yaml`。
 采用 NF4 QLoRA、FSDP2、PyTorch SDPA 融合注意力、两级 GPU 重算、前馈分块及图片分批编码，不使用 CPU 卸载。
 不依赖外部 `flash-attn`；线性注意力仍使用 FLA 和 causal-conv1d，SDPA 禁止回退到 math 后端。
 该路径由显式模型子类实现分块损失，不运行时替换 `forward`。

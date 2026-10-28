@@ -1,13 +1,37 @@
+# Inherit common configuration groups only; never inherit another task entrypoint.
 defaults:
-- sft_single_view
-- override model: qwen35_9b
-- override quantization: 4bit
-- override distributed: ddp
+- data: trajectory
+- template: qwen
+- model: qwen35_9b
+- method: sft
+- scene: single_view
+- tuning: lora
+- quantization: 4bit
+- distributed: ddp
+- tracking: wandb
 - _self_
+schema_version: 1
 experiment:
   name: sft_single_view_qwen35_9b_qlora
   output_dir: ../outputs/post_training/Single-view/qwen35_9b_qlora_v1
 method:
+  long_context: null
+  batch_size: 1
+  dataloader_workers: 0
+  epochs: 1.0
+  eval_steps: 10
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  learning_rate: 2.0e-05
+  logging_steps: 1
+  max_steps: -1
+  name: sft
+  resume_from: null
+  save_steps: 10
+  save_total_limit: 2
+  use_cpu: false
+  warmup_ratio: 0.03
+  weight_decay: 0.01
   backend:
     loss_type: chunked_nll
     prediction_loss_only: true

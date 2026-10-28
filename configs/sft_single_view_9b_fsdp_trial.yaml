@@ -1,15 +1,44 @@
+# Inherit common configuration groups only; never inherit another task entrypoint.
 defaults:
-- sft_single_view_9b_fsdp
-- override tracking: disabled
+- data: trajectory
+- template: qwen
+- model: qwen35_9b
+- method: sft
+- scene: single_view
+- tuning: lora
+- quantization: 4bit
+- distributed: fsdp
+- tracking: disabled
 - _self_
+schema_version: 1
 experiment:
   name: sft_single_view_qwen35_9b_qlora_fsdp_trial
   output_dir: ../outputs/post_training/Single-view/qwen35_9b_qlora_fsdp_longest_v1
+data:
+  accepted_statuses:
+  - OK
+  - UNKNOWN
 method:
-  max_steps: 2
+  long_context: null
+  batch_size: 1
+  dataloader_workers: 0
+  epochs: 1.0
+  eval_steps: 10
   gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  learning_rate: 2.0e-05
+  logging_steps: 1
+  max_steps: 2
+  name: sft
+  resume_from: null
   save_steps: 2
+  save_total_limit: 2
+  use_cpu: false
   warmup_ratio: 0
+  weight_decay: 0.01
   backend:
-    eval_strategy: 'no'
     do_eval: false
+    eval_strategy: 'no'
+    loss_type: chunked_nll
+    prediction_loss_only: true
+    skip_memory_metrics: false

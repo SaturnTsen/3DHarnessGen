@@ -1,19 +1,40 @@
+# Inherit common configuration groups only; never inherit another task entrypoint.
 defaults:
-- sft_single_view
-- override distributed: fsdp
-- override tracking: disabled
+- data: trajectory
+- template: qwen
+- model: qwen38_27b
+- method: sft
+- scene: single_view
+- tuning: lora
+- quantization: none
+- distributed: fsdp
+- tracking: disabled
 - _self_
+schema_version: 1
 experiment:
   name: sft_single_view_chunked_nll_fsdp_trial
   output_dir: ../outputs/post_training/Single-view/chunked_nll_fsdp_trial_v1
 method:
-  max_steps: 3
+  long_context: null
+  batch_size: 1
+  dataloader_workers: 0
+  epochs: 1.0
+  eval_steps: 10
   gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  learning_rate: 2.0e-05
+  logging_steps: 1
+  max_steps: 3
+  name: sft
+  resume_from: null
   save_steps: 3
+  save_total_limit: 2
+  use_cpu: false
   warmup_ratio: 0
+  weight_decay: 0.01
   backend:
+    do_eval: false
+    eval_strategy: 'no'
     loss_type: chunked_nll
     prediction_loss_only: true
-    eval_strategy: 'no'
-    do_eval: false
     skip_memory_metrics: false
