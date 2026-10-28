@@ -1,0 +1,526 @@
+{
+  "date": "2026-10-29",
+  "model": "Qwen3.8-27B",
+  "scope": "Only 3DHarnessBench/runs/<setting>/gpt-6-astra/<instance>/post_train_trajectory/trajectory.jsonl",
+  "measurement": "Mean tokens per training candidate before length filtering; percentages relative to the corresponding setting full input. Histories counted each time they occur in a candidate. No padding or truncation.",
+  "configs": [
+    "configs/sft_view_mix_27b_fsdp.yaml",
+    "configs/sft_interaction_mix_27b_fsdp.yaml"
+  ],
+  "source_files": 400,
+  "source_statistics_sha256": {
+    "temp/four_setting_tokens/view_samples.csv": "eef4a71fe4c51964f870ce25d8c4ffe5a874211a12257e48aa069d9c796e6ff1",
+    "temp/token_composition/sample_composition.csv": "eebd5c20427e085c41d14be41396366a11b79a8f33b1ebadf45e560be8e69025",
+    "temp/tool_return_breakdown/discovered_tool_sections.csv": "e806ec6595f086d0655e9ba792d46f4c436acaba060b26b4b848f062b8a4e349",
+    "temp/tool_return_breakdown/ordinary_messages.csv": "373b87cf5832fb9a9d3b4465bf60f0a702c0469ae5417c228d7dd4189c57f2d7"
+  },
+  "settings": {
+    "Single-view": {
+      "samples": 320,
+      "mean_tokens": 7842.00625,
+      "total_tokens": 2509442,
+      "max_tokens": 26749,
+      "over_49152": 0,
+      "categories": {
+        "初始/用户提示词": {
+          "tokens": 1273316,
+          "mean": 3979.1125,
+          "percent": 50.74100138596548
+        },
+        "初始工具声明": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "动态工具说明": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "工具返回的技能文档": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "其他工具返回文本": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "历史 assistant 回复及调用代码": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "当前 assistant 目标": {
+          "tokens": 1092766,
+          "mean": 3414.89375,
+          "percent": 43.546174806988965
+        },
+        "图片 token": {
+          "tokens": 143360,
+          "mean": 448.0,
+          "percent": 5.712823807045551
+        },
+        "混合返回及公共格式": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        }
+      },
+      "discovery_detail": {
+        "API/手册检索接口说明": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "Blender Python 执行接口": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "场景/对象/文件查询接口": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "截图及参考视口接口": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "导航/渲染/缩略图接口": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "其他服务/未解析说明及格式": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        }
+      },
+      "ordinary_detail": {
+        "可识别的几何/组件/测量数据": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "其他执行返回（含未细分的自定义测量）": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "场景/对象/材质结构": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "明确报错": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "API/手册文档正文": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "其余返回及格式": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        }
+      },
+      "unused_four_initial_groups": {
+        "mean": 0,
+        "percent": 0
+      }
+    },
+    "Multi-view": {
+      "samples": 320,
+      "mean_tokens": 9165.3125,
+      "total_tokens": 2932900,
+      "max_tokens": 21662,
+      "over_49152": 0,
+      "categories": {
+        "初始/用户提示词": {
+          "tokens": 1274528,
+          "mean": 3982.9,
+          "percent": 43.45623785331924
+        },
+        "初始工具声明": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "动态工具说明": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "工具返回的技能文档": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "其他工具返回文本": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "历史 assistant 回复及调用代码": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "当前 assistant 目标": {
+          "tokens": 1084932,
+          "mean": 3390.4125,
+          "percent": 36.99178287701592
+        },
+        "图片 token": {
+          "tokens": 573440,
+          "mean": 1792.0,
+          "percent": 19.551979269664837
+        },
+        "混合返回及公共格式": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        }
+      },
+      "discovery_detail": {
+        "API/手册检索接口说明": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "Blender Python 执行接口": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "场景/对象/文件查询接口": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "截图及参考视口接口": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "导航/渲染/缩略图接口": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "其他服务/未解析说明及格式": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        }
+      },
+      "ordinary_detail": {
+        "可识别的几何/组件/测量数据": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "其他执行返回（含未细分的自定义测量）": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "场景/对象/材质结构": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "明确报错": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "API/手册文档正文": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        },
+        "其余返回及格式": {
+          "tokens": 0,
+          "mean": 0.0,
+          "percent": 0.0
+        }
+      },
+      "unused_four_initial_groups": {
+        "mean": 0,
+        "percent": 0
+      }
+    },
+    "ActiveVisual": {
+      "samples": 2806,
+      "mean_tokens": 49223.58624376336,
+      "total_tokens": 138121383,
+      "max_tokens": 88117,
+      "over_49152": 1378,
+      "categories": {
+        "初始/用户提示词": {
+          "tokens": 29890729,
+          "mean": 10652.433713471133,
+          "percent": 21.64091348549558
+        },
+        "初始工具声明": {
+          "tokens": 26912346,
+          "mean": 9591.0,
+          "percent": 19.484561633733424
+        },
+        "动态工具说明": {
+          "tokens": 34218924,
+          "mean": 12194.912330719886,
+          "percent": 24.77453038534953
+        },
+        "工具返回的技能文档": {
+          "tokens": 8177395,
+          "mean": 2914.253385602281,
+          "percent": 5.920441008037112
+        },
+        "其他工具返回文本": {
+          "tokens": 6881869,
+          "mean": 2452.554882394868,
+          "percent": 4.982479070601255
+        },
+        "历史 assistant 回复及调用代码": {
+          "tokens": 13329672,
+          "mean": 4750.417676407697,
+          "percent": 9.650693984145814
+        },
+        "当前 assistant 目标": {
+          "tokens": 876937,
+          "mean": 312.52209550962226,
+          "percent": 0.6349031416808214
+        },
+        "图片 token": {
+          "tokens": 16535448,
+          "mean": 5892.889522451889,
+          "percent": 11.97167856334019
+        },
+        "混合返回及公共格式": {
+          "tokens": 1298063,
+          "mean": 462.60263720598715,
+          "percent": 0.9397987276162736
+        }
+      },
+      "discovery_detail": {
+        "API/手册检索接口说明": {
+          "tokens": 11801310,
+          "mean": 4205.741268709908,
+          "percent": 8.54415858259977
+        },
+        "Blender Python 执行接口": {
+          "tokens": 6920745,
+          "mean": 2466.4094796863865,
+          "percent": 5.0106253280131146
+        },
+        "场景/对象/文件查询接口": {
+          "tokens": 6391659,
+          "mean": 2277.8542409123306,
+          "percent": 4.627566609291771
+        },
+        "截图及参考视口接口": {
+          "tokens": 5921248,
+          "mean": 2110.2095509622236,
+          "percent": 4.286988640998476
+        },
+        "导航/渲染/缩略图接口": {
+          "tokens": 2982330,
+          "mean": 1062.84034212402,
+          "percent": 2.159209483154393
+        },
+        "其他服务/未解析说明及格式": {
+          "tokens": 201632,
+          "mean": 71.85744832501781,
+          "percent": 0.14598174129200545
+        }
+      },
+      "ordinary_detail": {
+        "可识别的几何/组件/测量数据": {
+          "tokens": 230523,
+          "mean": 82.1535994297933,
+          "percent": 0.166898850122287
+        },
+        "其他执行返回（含未细分的自定义测量）": {
+          "tokens": 3662876,
+          "mean": 1305.3727726300783,
+          "percent": 2.651925372047571
+        },
+        "场景/对象/材质结构": {
+          "tokens": 1538553,
+          "mean": 548.308267997149,
+          "percent": 1.1139136943046681
+        },
+        "明确报错": {
+          "tokens": 236868,
+          "mean": 84.41482537419814,
+          "percent": 0.17149263557547784
+        },
+        "API/手册文档正文": {
+          "tokens": 885636,
+          "mean": 315.6222380612972,
+          "percent": 0.6412012251571504
+        },
+        "其余返回及格式": {
+          "tokens": 327413,
+          "mean": 116.6831789023521,
+          "percent": 0.23704729339410105
+        }
+      },
+      "unused_four_initial_groups": {
+        "mean": 5392,
+        "percent": 10.954098251390953
+      }
+    },
+    "Full3DInteraction": {
+      "samples": 2777,
+      "mean_tokens": 62572.13467770976,
+      "total_tokens": 173762818,
+      "max_tokens": 131343,
+      "over_49152": 1917,
+      "categories": {
+        "初始/用户提示词": {
+          "tokens": 29193602,
+          "mean": 10512.640259272597,
+          "percent": 16.80083365130508
+        },
+        "初始工具声明": {
+          "tokens": 26634207,
+          "mean": 9591.0,
+          "percent": 15.32790921933598
+        },
+        "动态工具说明": {
+          "tokens": 21720797,
+          "mean": 7821.676989557076,
+          "percent": 12.500255952340735
+        },
+        "工具返回的技能文档": {
+          "tokens": 8171723,
+          "mean": 2942.644220381707,
+          "percent": 4.702802989762747
+        },
+        "其他工具返回文本": {
+          "tokens": 58433505,
+          "mean": 21041.953546993158,
+          "percent": 33.628313394410995
+        },
+        "历史 assistant 回复及调用代码": {
+          "tokens": 15920031,
+          "mean": 5732.816348577601,
+          "percent": 9.16193186968227
+        },
+        "当前 assistant 目标": {
+          "tokens": 976095,
+          "mean": 351.4926179330212,
+          "percent": 0.5617398539197264
+        },
+        "图片 token": {
+          "tokens": 12081251,
+          "mean": 4350.468491177529,
+          "percent": 6.952725064576243
+        },
+        "混合返回及公共格式": {
+          "tokens": 631607,
+          "mean": 227.4422038170688,
+          "percent": 0.36348800466622266
+        }
+      },
+      "discovery_detail": {
+        "API/手册检索接口说明": {
+          "tokens": 5033744,
+          "mean": 1812.655383507382,
+          "percent": 2.896905136517756
+        },
+        "Blender Python 执行接口": {
+          "tokens": 7717237,
+          "mean": 2778.9834353619012,
+          "percent": 4.441247609140409
+        },
+        "场景/对象/文件查询接口": {
+          "tokens": 6536264,
+          "mean": 2353.7140799423837,
+          "percent": 3.7616010578281482
+        },
+        "截图及参考视口接口": {
+          "tokens": 936756,
+          "mean": 337.32661145120636,
+          "percent": 0.5391003730153594
+        },
+        "导航/渲染/缩略图接口": {
+          "tokens": 1247468,
+          "mean": 449.21425999279796,
+          "percent": 0.7179142318007297
+        },
+        "其他服务/未解析说明及格式": {
+          "tokens": 249328,
+          "mean": 89.78321930140439,
+          "percent": 0.14348754403833391
+        }
+      },
+      "ordinary_detail": {
+        "可识别的几何/组件/测量数据": {
+          "tokens": 33452084,
+          "mean": 12046.123154483255,
+          "percent": 19.25157774547602
+        },
+        "其他执行返回（含未细分的自定义测量）": {
+          "tokens": 16798057,
+          "mean": 6048.994238386748,
+          "percent": 9.667233297286879
+        },
+        "场景/对象/材质结构": {
+          "tokens": 5919374,
+          "mean": 2131.571480014404,
+          "percent": 3.4065826441649905
+        },
+        "明确报错": {
+          "tokens": 1838074,
+          "mean": 661.8919697515304,
+          "percent": 1.0578062793617908
+        },
+        "API/手册文档正文": {
+          "tokens": 280727,
+          "mean": 101.09002520705798,
+          "percent": 0.16155757787031286
+        },
+        "其余返回及格式": {
+          "tokens": 145189,
+          "mean": 52.282679150162046,
+          "percent": 0.08355585025100135
+        }
+      },
+      "unused_four_initial_groups": {
+        "mean": 5392,
+        "percent": 8.617254354150726
+      }
+    }
+  },
+  "validation": {
+    "new_view_samples": 800,
+    "new_view_full_processor_checks": 12,
+    "previous_interaction_full_processor_checks": 21,
+    "previous_interaction_prefix_retokenizations": 600,
+    "previous_discovery_message_retokenizations": 429,
+    "all_category_sums_match": true,
+    "model_weights_loaded": false,
+    "data_or_training_code_modified": false,
+    "interaction_sources_unchanged": true
+  },
+  "notes": [
+    "Accepted statuses and object assignments follow each current mixed-stage YAML. Both use the same Qwen 27B tokenizer and configured image budgets.",
+    "Dynamic tool descriptions use the corrected classification that excludes trailing skill documents.",
+    "Ordinary text content categories are rule-based at complete-message granularity, not semantic relevance labels; other execution results include custom measurements not covered by explicit field rules.",
+    "Assistant target category includes the complete serialized assistant message; it is not the number of labels contributing to loss.",
+    "Initial four unused groups are a subset of initial tool declarations and are not added again to full input totals."
+  ],
+  "source_files_sha256_digest": "2fbae3d90636635f6143f01a89cb5d24394ab8e1bea61b8dfae16911a8105605"
+}

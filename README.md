@@ -6,9 +6,34 @@
 3DHarnessBench/runs/<setting>/gpt-6-astra/<instance>/post_train_trajectory/trajectory.jsonl
 ```
 
-代码位于项目根目录的 `harness_training/`。第一版实现 SFT。`Trainer` 是统一入口；data、templates、models 和 training methods 通过各自的 base 定义接口，使用具体类直接初始化。模型类持有模型和 Processor，template 将已选定的 v3 消息转为 Qwen 输入。数据不重新导出。
+代码位于项目根目录的 `harness_training/`。第一版实现 SFT。`Trainer` 是统一入口；data、templates、models 和 training methods 通过各自的 base 定义接口，使用具体类直接初始化。模型类持有模型和 Processor，template 将已选定的 v3 消息转为 Qwen 输入。默认直接读取原始轨迹，下文提供独立的可选清洗入口。
 
 设计说明见 [docs/POST_TRAINING_DESIGN.md](docs/POST_TRAINING_DESIGN.md)。
+
+## GPT-6-Astra 轨迹清洗
+
+```bash
+pixi run python -m scripts.clean_astra_trajectories
+```
+
+只读取四种场景的 `gpt-6-astra/*/post_train_trajectory/trajectory.jsonl`，输出到
+`data/trajectory_cleaned/<setting>/<object>/trajectory.jsonl`，引用的原图复制到对象目录的
+`imgs/`，不修改输入。每行保留一个原有训练目标：开头的用户任务及 developer 指令、
+精简后的工具声明、此前最近五轮未失败的工具调用及返回和关联的 agent 文字，当前目标另外保留。
+窗口外图片不进入该样本；同一图片可被多个样本共享，出现顺序和重复引用均保留。
+
+脚本检查全量调用后，仅删除候选列表中实际未使用的声明及 exec 内嵌说明，包括 web、
+图片生成、目标管理、协作 agent、询问用户及 MCP 资源发现/读取。失败按步骤 `ERROR`、
+`Script failed`、实际结果中的 `isError: true`、错误状态或非零退出码识别，删除失败调用和返回，
+也不将失败调用作为训练目标；`UNKNOWN` 保留。一次带工具调用的 assistant 消息计为一轮，
+`wait` 同样计一轮，不改写调用代码或跨窗口补造变量状态。
+
+输出仍为 v3 格式，重新编号消息、历史和目标索引，来源及旧索引映射写入
+`cleaning_manifest.jsonl`，汇总写入 `cleaning_report.json`。缺失或损坏的保留图片会使任务报错；
+全部记录校验和图片复制通过后才发布输出目录。已有输出不会覆盖，可用 `--output-root` 指定新目录，
+`--settings` 选择场景，`--keep-tool-rounds` 调整历史轮数。训练读取清洗结果时，通过 `data.files`
+显式列出对象 JSONL，`image_root` 保持 `null`，图片相对各 JSONL 解析。清洗不保证样本满足 token
+预算或跨窗口代码依赖完整；训练前仍需按配置执行编码检查。
 
 ## 环境
 

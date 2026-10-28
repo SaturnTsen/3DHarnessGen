@@ -54,8 +54,8 @@ class ImageURL(BaseModelStrict):
     @classmethod
     def relative_image(cls, value: str) -> str:
         path = PurePosixPath(value)
-        if path.is_absolute() or ".." in path.parts or len(path.parts) < 2 or path.parts[0] != "images" or "\\" in value:
-            raise ValueError("image URL must be a relative images/... path without '..'")
+        if path.is_absolute() or ".." in path.parts or len(path.parts) < 2 or path.parts[0] not in {"images", "imgs"} or "\\" in value:
+            raise ValueError("image URL must be a relative images/... or imgs/... path without '..'")
         return value
 
 

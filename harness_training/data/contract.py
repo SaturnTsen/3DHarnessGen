@@ -56,8 +56,8 @@ class ImageURL(BaseModelStrict):
         explicit_root = bool(info.context and info.context.get("explicit_image_root"))
         if path.is_absolute() or ".." in path.parts or len(path.parts) < 2 or "\\" in value:
             raise ValueError("image URL must be a relative path without '..'")
-        if not explicit_root and path.parts[0] != "images":
-            raise ValueError("image URL must be a relative images/... path without '..'")
+        if not explicit_root and path.parts[0] not in {"images", "imgs"}:
+            raise ValueError("image URL must be a relative images/... or imgs/... path without '..'")
         return value
 
 
