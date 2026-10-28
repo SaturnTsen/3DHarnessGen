@@ -28,7 +28,8 @@ class TrainingExample:
 
     @property
     def id(self) -> str:
-        return f"{self.record.instance}:{self.record.row.metadata.session_id}:{self.step_id}"
+        metadata = self.record.row.metadata
+        return f"{metadata.scene}:{self.record.instance}:{metadata.session_id}:{self.step_id}"
 
 
 @dataclass

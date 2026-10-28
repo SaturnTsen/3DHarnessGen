@@ -1,0 +1,24 @@
+defaults:
+- sft_single_view_9b_fsdp
+- _self_
+experiment:
+  name: sft_view_mix_qwen35_9b_qlora_fsdp
+  scene:
+  - Single-view
+  - Multi-view
+  output_dir: ../outputs/post_training/View-mix/qwen35_9b_qlora_fsdp_epoch1_v1
+data:
+  # Pool both scenes and split by object before selecting training replies.
+  files: null
+  image_root: null
+  instances: null
+method:
+  resume_from: null
+tracking:
+  group: View-mix
+  tags:
+  - Single-view
+  - Multi-view
+  - mix
+  - lora
+  - fsdp

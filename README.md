@@ -39,6 +39,24 @@ pixi run post-train preview --config configs/sft_single_view.yaml --limit 1
 | ActiveVisual | `configs/sft_active_visual.yaml` |
 | Full3DInteraction | `configs/sft_full_3d_interaction.yaml` |
 
+另外提供两份 9B + NF4 QLoRA + 双卡 FSDP2 混合训练配置：
+
+| 混合场景 | 配置 |
+| --- | --- |
+| Single-view + Multi-view | `configs/sft_view_mix_9b_fsdp.yaml` |
+| ActiveVisual + Full3DInteraction | `configs/sft_interaction_mix_9b_fsdp.yaml` |
+
+混合配置通过 `experiment.scene` 列表选择场景，直接读取各场景原有轨迹，按可用样本数量合并，不重采样。
+先将所有场景的对象合并去重，再按对象统一划分训练、验证、测试集（80% / 10% / 10%，数量向下取整），同一对象不会跨集合。
+两组各自从基础模型开始训练一轮，分别保存结果；接受 `OK` 和 `UNKNOWN` 步骤，缺失图片的样本会记录并跳过。
+
+```bash
+pixi run post-train audit --config configs/sft_view_mix_9b_fsdp.yaml
+pixi run post-train audit --config configs/sft_interaction_mix_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/sft_view_mix_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/sft_interaction_mix_9b_fsdp.yaml
+```
+
 ## Hydra 配置组合
 
 四个场景配置现在通过 Hydra 组合公共参数，训练前仍由 Pydantic 严格校验。

@@ -214,6 +214,95 @@ def test_split_stays_same_across_scenes(tmp_path, config):
                                                                  if split is getattr(a, name))
 
 
+@pytest.mark.parametrize("scenes", [
+    ["Single-view", "Multi-view"], ["ActiveVisual", "Full3DInteraction"],
+])
+@pytest.mark.parametrize("explicit_files", [False, True])
+def test_mix_scenes_share_object_splits_and_keep_image_bindings(tmp_path, config, scenes, explicit_files):
+    from test_templates import interactive_record
+
+    paths = []
+    for scene, count in zip(scenes, [10, 15], strict=True):
+        for index in range(count):
+            instance = f"Object{index}Factory"
+            if scene in ("Single-view", "Multi-view"):
+                path = write_trajectory(tmp_path, scene, instance)
+            else:
+                source = interactive_record(tmp_path / f"source-{scene}-{index}", instance=instance)
+                row = json.loads(source.read_text())
+                row["metadata"]["scene"] = scene
+                source.write_text(json.dumps(row) + "\n")
+                path = tmp_path / scene / "gpt-6-astra" / instance / "post_train_trajectory/trajectory.jsonl"
+                path.parent.parent.mkdir(parents=True)
+                source.parent.rename(path.parent)
+            paths.append(path)
+    config.data.runs_root = tmp_path
+    config.data.validation_fraction = .2
+    config.data.test_fraction = .2
+    config.data.files = paths if explicit_files else None
+    data = TrajectoryDataset(config.data, scenes, config.experiment.seed).prepare()
+    assert not data.rejected
+    assert len(data.assignments) == 15
+    assert len(data.source_hashes) == 25
+    examples = [example for split in ("train", "validation", "test") for example in data.examples(split)]
+    assert len(examples) == (50 if scenes[0] == "Single-view" else 75)
+    assert len({example.id for example in examples}) == len(examples)
+    assert {name: list(data.assignments.values()).count(name) for name in ("train", "validation", "test")} == {
+        "train": 9, "validation": 3, "test": 3,
+    }
+    for split in ("train", "validation", "test"):
+        for example in data.examples(split):
+            assert data.assignments[example.record.instance] == split
+            if scenes[0] == "Single-view":
+                assert example.record.images_by_message[1] == (example.record.path.parent / "images/reference.png",)
+                assert example.target_index in (2, 4)
+            else:
+                image = example.record.path.parent / "images/shot.png"
+                assert example.record.images_by_message[4] == (image, image)
+                assert example.target_index in (3, 5, 7)
+    reversed_data = TrajectoryDataset(config.data, list(reversed(scenes)), config.experiment.seed).prepare()
+    assert reversed_data.assignments == data.assignments
+
+
+def test_mix_rejects_scene_metadata_in_wrong_directory(tmp_path, config):
+    path = write_trajectory(tmp_path)
+    write_trajectory(tmp_path, "Multi-view")
+    row = json.loads(path.read_text())
+    row["metadata"]["scene"] = "Multi-view"
+    path.write_text(json.dumps(row) + "\n")
+    config.data.runs_root = tmp_path
+    data = TrajectoryDataset(config.data, ["Single-view", "Multi-view"], config.experiment.seed).prepare()
+    assert len(data.train) == 2
+    assert "Scene metadata does not match input path" in data.rejected[0]["reason"]
+
+
+@pytest.mark.parametrize("name, scenes", [
+    ("view", ["Single-view", "Multi-view"]),
+    ("interaction", ["ActiveVisual", "Full3DInteraction"]),
+])
+def test_mix_configs_and_roundtrip(tmp_path, name, scenes):
+    root = Path(__file__).resolve().parents[2]
+    config = load_config(root / f"configs/sft_{name}_mix_9b_fsdp.yaml")
+    baseline = load_config(root / "configs/sft_single_view_9b_fsdp.yaml")
+    assert config.experiment.scene == scenes
+    assert config.experiment.output_dir != baseline.experiment.output_dir
+    assert config.model == baseline.model
+    assert config.distributed == baseline.distributed
+    assert config.method.epochs == 1
+    assert config.method.resume_from is None
+    snapshot = tmp_path / "mixed.yaml"
+    save_config(config, snapshot)
+    assert load_config(snapshot) == config
+
+
+@pytest.mark.parametrize("scenes", [[], ["Single-view", "Single-view"], ["invalid"]])
+def test_invalid_scene_lists_rejected(config, scenes):
+    payload = config.model_dump()
+    payload["experiment"]["scene"] = scenes
+    with pytest.raises(ValidationError):
+        TrainingConfig.model_validate(payload)
+
+
 def test_split_uses_only_selected_scene_paths_and_instances(tmp_path, config):
     for index in range(20):
         write_trajectory(tmp_path, "Single-view", f"Object{index}Factory")

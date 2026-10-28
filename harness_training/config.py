@@ -17,9 +17,15 @@ class StrictConfig(BaseModel):
 
 class ExperimentConfig(StrictConfig):
     name: str
-    scene: Scene
+    scene: Scene | Annotated[list[Scene], Field(min_length=1)]
     seed: int
     output_dir: Path
+
+    @model_validator(mode="after")
+    def unique_scenes(self):
+        if isinstance(self.scene, list) and len(set(self.scene)) != len(self.scene):
+            raise ValueError("scene list must contain unique scenes")
+        return self
 
 
 class WandbSettingsConfig(StrictConfig):
