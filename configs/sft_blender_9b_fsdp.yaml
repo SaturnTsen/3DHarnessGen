@@ -1,0 +1,25 @@
+defaults:
+  - sft_multi_view_9b_fsdp
+  - _self_
+experiment:
+  name: sft_blender_mix_qwen35_9b_qlora_fsdp
+  output_dir: ../outputs/post_training/Blender/qwen35_9b_qlora_fsdp_mix_epoch1_v1
+data:
+  # Pool both sources, then split by metadata.instance before selecting targets.
+  files:
+    - ../3dcodeverse/bioinspired3d/bpy_structures_geo_llamafactory_img/trajectory.jsonl
+    - ../3dcodeverse/3dcodebench/instances_geo_llamafactory_img/trajectory.jsonl
+  image_root: .. # Resolve image URLs from the project root.
+  test_fraction: 0.0
+  validation_fraction: 0.007680491551459293 # Sample 50 of the current 6510 objects.
+template:
+  max_length: 163840
+method:
+  save_steps: 20
+tracking:
+  group: Blender
+  tags:
+    - Blender
+    - mix
+    - lora
+    - fsdp

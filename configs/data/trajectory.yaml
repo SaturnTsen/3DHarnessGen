@@ -1,5 +1,7 @@
 accepted_statuses:
 - OK
+files: null
+image_root: null
 include_final_reply: true
 instances: null
 missing_images: skip_sample

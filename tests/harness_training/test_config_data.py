@@ -103,6 +103,78 @@ def test_split_rejects_invalid_ratios(config):
         DataConfig.model_validate({**config.data.model_dump(), "validation_fraction": .6, "test_fraction": .4})
 
 
+def test_mix_files_split_by_metadata_object_and_resolve_images(config, tmp_path):
+    from PIL import Image
+
+    image_root = tmp_path / "project"
+    (image_root / "renders").mkdir(parents=True)
+    Image.new("RGB", (32, 32), "green").save(image_root / "renders/first.png")
+    Image.new("RGB", (32, 32), "red").save(image_root / "renders/second.png")
+    original = json.loads(write_trajectory(tmp_path / "original", "Multi-view").read_text())
+    paths = [tmp_path / "source_a.jsonl", tmp_path / "source_b.jsonl"]
+    for source_index, path in enumerate(paths):
+        rows = []
+        for index in range(10):
+            row = json.loads(json.dumps(original))
+            row["metadata"]["instance"] = f"dataset/object_{index}"
+            row["metadata"]["session_id"] = f"source_{source_index}"
+            images = [{"type": "image_url", "image_url": {"url": name}} for name in
+                      ("renders/second.png", "renders/first.png", "renders/second.png")]
+            row["messages"][1]["content"] = images
+            row["messages"][3]["content"] = images
+            rows.append(json.dumps(row))
+        path.write_text("\n".join(rows) + "\n")
+    config.data.files = paths
+    config.data.image_root = image_root
+    config.data.validation_fraction = .2
+    config.data.test_fraction = .2
+    data = TrajectoryDataset(config.data, "Multi-view", config.experiment.seed).prepare()
+    assert data.report()["samples"] == {"train": 24, "validation": 8, "test": 8}
+    assert not data.rejected
+    assert set(data.source_hashes) == {str(path) for path in paths}
+    for split in ("train", "validation", "test"):
+        for example in data.examples(split):
+            assert data.assignments[example.record.instance] == split
+            assert example.record.images_by_message[1] == (
+                image_root / "renders/second.png", image_root / "renders/first.png",
+                image_root / "renders/second.png")
+    first_assignments = data.assignments
+    config.data.files = list(reversed(paths))
+    assert TrajectoryDataset(config.data, "Multi-view", config.experiment.seed).prepare().assignments == first_assignments
+
+
+def test_blender_config_sources_paths_and_training_settings(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    config = load_config(root / "configs/sft_blender_9b_fsdp.yaml")
+    baseline = load_config(root / "configs/sft_multi_view_9b_fsdp.yaml")
+    assert config.data.image_root == root
+    assert len(config.data.files) == 2
+    assert all(path.is_absolute() for path in config.data.files)
+    assert config.experiment.scene == "Multi-view"
+    assert config.model == baseline.model
+    assert config.template == baseline.template
+    assert config.method == baseline.method.model_copy(update={
+        "save_steps": 20,
+        "backend": baseline.method.backend.model_copy(update={"run_name": config.experiment.name})})
+    assert config.method.resume_from is None
+    saved = tmp_path / "blender.yaml"
+    save_config(config, saved)
+    assert load_config(saved) == config
+
+
+@pytest.mark.parametrize("url", ["../renders/image.png", "/renders/image.png", "renders/../image.png"])
+def test_explicit_image_root_rejects_absolute_paths_and_traversal(tmp_path, config, url):
+    path = write_trajectory(tmp_path / "runs")
+    row = json.loads(path.read_text())
+    row["messages"][1]["content"][1]["image_url"]["url"] = url
+    path.write_text(json.dumps(row) + "\n")
+    config.data.files = [path]
+    config.data.image_root = tmp_path
+    data = TrajectoryDataset(config.data, "Single-view", config.experiment.seed).prepare()
+    assert not data.train
+    assert "image URL" in data.rejected[0]["reason"]
+
+
 def test_step_selection_uses_explicit_indices(tmp_path, config):
     write_trajectory(tmp_path, failed_first=True)
     cfg = config.data.model_copy(update={"runs_root": tmp_path})

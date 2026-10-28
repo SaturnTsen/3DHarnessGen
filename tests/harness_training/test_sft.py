@@ -48,8 +48,10 @@ def test_backend_arguments_use_explicit_config(config):
     assert trainer_fields == set(signature(SFTTrainer).parameters)
 
 
-@pytest.mark.parametrize("scene", ["Single-view", "ActiveVisual"])
-def test_small_qwen_sft_save_and_resume(config, processor, tmp_path, scene):
+@pytest.mark.parametrize("scene,loss_type", [
+    ("Single-view", "nll"), ("ActiveVisual", "nll"), ("Single-view", "chunked_nll"),
+])
+def test_small_qwen_sft_save_and_resume(config, processor, tmp_path, scene, loss_type):
     """Exercise real model loading, LoRA gradients, backend training and checkpoint restore."""
     import torch
     from transformers import AutoConfig, AutoProcessor, Qwen3_5Config, Qwen3_5ForConditionalGeneration
@@ -73,6 +75,8 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path, scene):
         processor.save_pretrained(model_path)
         del tiny
         config.model.path = model_path
+        config.method.backend.loss_type = loss_type
+        config.method.backend.prediction_loss_only = loss_type == "chunked_nll"
         # Ten objects give one held-out object at a 10% validation fraction.
         config.data.validation_fraction = .1
         for index in range(9):

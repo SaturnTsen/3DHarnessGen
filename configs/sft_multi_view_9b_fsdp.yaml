@@ -1,0 +1,10 @@
+defaults:
+- sft_single_view_9b_fsdp
+- override scene: multi_view
+- _self_
+experiment:
+  name: sft_multi_view_qwen35_9b_qlora_fsdp
+  output_dir: ../outputs/post_training/Multi-view/qwen35_9b_qlora_fsdp_epoch2_v1
+method:
+  epochs: 2.0
+  resume_from: null

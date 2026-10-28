@@ -1,0 +1,19 @@
+defaults:
+- sft_single_view
+- override distributed: fsdp
+- override tracking: disabled
+- _self_
+experiment:
+  name: sft_single_view_chunked_nll_fsdp_trial
+  output_dir: ../outputs/post_training/Single-view/chunked_nll_fsdp_trial_v1
+method:
+  max_steps: 3
+  gradient_accumulation_steps: 1
+  save_steps: 3
+  warmup_ratio: 0
+  backend:
+    loss_type: chunked_nll
+    prediction_loss_only: true
+    eval_strategy: 'no'
+    do_eval: false
+    skip_memory_metrics: false
