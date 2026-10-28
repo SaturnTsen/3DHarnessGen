@@ -17,9 +17,15 @@ class StrictConfig(BaseModel):
 
 class ExperimentConfig(StrictConfig):
     name: str
-    scene: Scene
+    scene: Scene | Annotated[list[Scene], Field(min_length=1)]
     seed: int
     output_dir: Path
+
+    @model_validator(mode="after")
+    def unique_scenes(self):
+        if isinstance(self.scene, list) and len(set(self.scene)) != len(self.scene):
+            raise ValueError("scene list must contain unique scenes")
+        return self
 
 
 class WandbSettingsConfig(StrictConfig):
@@ -49,6 +55,8 @@ class TrackingConfig(StrictConfig):
 
 class DataConfig(StrictConfig):
     schema_version: Literal[3]
+    files: list[Path] | None
+    image_root: Path | None
     runs_root: Path
     source_model: str
     instances: list[str] | None
@@ -61,6 +69,11 @@ class DataConfig(StrictConfig):
 
     @model_validator(mode="after")
     def valid_split(self):
+        if self.files is not None:
+            if not self.files or len(set(self.files)) != len(self.files):
+                raise ValueError("files must be nonempty and unique when specified")
+            if self.instances is not None:
+                raise ValueError("Explicit files select objects from metadata; instances must be null")
         if self.validation_fraction + self.test_fraction >= 1:
             raise ValueError("validation_fraction + test_fraction must be less than 1")
         if self.instances is not None and (not self.instances or len(set(self.instances)) != len(self.instances)):
@@ -421,12 +434,17 @@ def parse_config(composed, directory: Path) -> TrainingConfig:
 
     config = parse_yaml_raw_as(TrainingConfig, OmegaConf.to_yaml(composed, resolve=True))
     for section, field in [(config.experiment, "output_dir"), (config.data, "runs_root"),
+                           (config.data, "image_root"),
                            (config.model, "path"),
                            (config.method, "resume_from")]:
         value = getattr(section, field)
         if value is not None:
             expanded = value.expanduser()
             setattr(section, field, (expanded if expanded.is_absolute() else directory / expanded).resolve())
+    if config.data.files is not None:
+        expanded_files = [path.expanduser() for path in config.data.files]
+        config.data.files = [(path if path.is_absolute() else directory / path).resolve()
+                             for path in expanded_files]
     return config
 
 

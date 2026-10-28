@@ -10,12 +10,13 @@ from harness_training.config import load_config, save_config
 from conftest import write_trajectory
 
 
-@pytest.mark.parametrize("strategy, quantization", [
-    ("single", "none"), ("single", "4bit"),
-    ("ddp", "none"), ("ddp", "4bit"),
-    ("fsdp", "none"), ("fsdp", "4bit"),
+@pytest.mark.parametrize("strategy, quantization, loss_type", [
+    ("single", "none", "nll"), ("single", "4bit", "nll"),
+    ("ddp", "none", "nll"), ("ddp", "4bit", "nll"),
+    ("fsdp", "none", "nll"), ("fsdp", "4bit", "nll"),
+    ("fsdp", "none", "chunked_nll"),
 ])
-def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantization):
+def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantization, loss_type):
     """Run real BF16/4-bit training and collective checkpoint recovery on bounded inputs."""
     import torch
     from safetensors.torch import load_file
@@ -28,6 +29,8 @@ def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantizati
         f"distributed={strategy}", f"quantization={quantization}",
         "method.gradient_checkpointing=true", "method.backend.bf16=true",
         "method.backend.fp16=false", "method.backend.eval_strategy=no", "method.backend.do_eval=false",
+        f"method.backend.loss_type={loss_type}",
+        f"method.backend.prediction_loss_only={'true' if loss_type == 'chunked_nll' else 'false'}",
         f"tracking={'disabled' if strategy == 'single' else 'wandb'}",
     ])
     if strategy != "single":

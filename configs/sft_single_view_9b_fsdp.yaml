@@ -1,0 +1,16 @@
+defaults:
+- sft_single_view_9b
+- override distributed: fsdp
+- _self_
+experiment:
+  name: sft_single_view_qwen35_9b_qlora_fsdp
+  output_dir: ../outputs/post_training/Single-view/qwen35_9b_qlora_fsdp_epoch1_v1
+data:
+  accepted_statuses:
+  - OK
+  - UNKNOWN
+method:
+  epochs: 1.0
+  max_steps: -1
+  backend:
+    skip_memory_metrics: false

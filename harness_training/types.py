@@ -59,6 +59,9 @@ class ImageProcessor(Protocol):
 class Processor(Protocol):
     tokenizer: PreTrainedTokenizerBase
     image_processor: ImageProcessor
+    image_token: str
+
+    def replace_image_token(self, image_inputs: TensorInputs, image_idx: int) -> str: ...
 
     def apply_chat_template(self, conversation: list[ChatMessage], *, tokenize: Literal[False],
                             enable_thinking: bool, add_generation_prompt: bool,

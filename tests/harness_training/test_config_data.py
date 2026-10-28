@@ -103,6 +103,78 @@ def test_split_rejects_invalid_ratios(config):
         DataConfig.model_validate({**config.data.model_dump(), "validation_fraction": .6, "test_fraction": .4})
 
 
+def test_mix_files_split_by_metadata_object_and_resolve_images(config, tmp_path):
+    from PIL import Image
+
+    image_root = tmp_path / "project"
+    (image_root / "renders").mkdir(parents=True)
+    Image.new("RGB", (32, 32), "green").save(image_root / "renders/first.png")
+    Image.new("RGB", (32, 32), "red").save(image_root / "renders/second.png")
+    original = json.loads(write_trajectory(tmp_path / "original", "Multi-view").read_text())
+    paths = [tmp_path / "source_a.jsonl", tmp_path / "source_b.jsonl"]
+    for source_index, path in enumerate(paths):
+        rows = []
+        for index in range(10):
+            row = json.loads(json.dumps(original))
+            row["metadata"]["instance"] = f"dataset/object_{index}"
+            row["metadata"]["session_id"] = f"source_{source_index}"
+            images = [{"type": "image_url", "image_url": {"url": name}} for name in
+                      ("renders/second.png", "renders/first.png", "renders/second.png")]
+            row["messages"][1]["content"] = images
+            row["messages"][3]["content"] = images
+            rows.append(json.dumps(row))
+        path.write_text("\n".join(rows) + "\n")
+    config.data.files = paths
+    config.data.image_root = image_root
+    config.data.validation_fraction = .2
+    config.data.test_fraction = .2
+    data = TrajectoryDataset(config.data, "Multi-view", config.experiment.seed).prepare()
+    assert data.report()["samples"] == {"train": 24, "validation": 8, "test": 8}
+    assert not data.rejected
+    assert set(data.source_hashes) == {str(path) for path in paths}
+    for split in ("train", "validation", "test"):
+        for example in data.examples(split):
+            assert data.assignments[example.record.instance] == split
+            assert example.record.images_by_message[1] == (
+                image_root / "renders/second.png", image_root / "renders/first.png",
+                image_root / "renders/second.png")
+    first_assignments = data.assignments
+    config.data.files = list(reversed(paths))
+    assert TrajectoryDataset(config.data, "Multi-view", config.experiment.seed).prepare().assignments == first_assignments
+
+
+def test_blender_config_sources_paths_and_training_settings(tmp_path):
+    root = Path(__file__).resolve().parents[2]
+    config = load_config(root / "configs/sft_blender_9b_fsdp.yaml")
+    baseline = load_config(root / "configs/sft_multi_view_9b_fsdp.yaml")
+    assert config.data.image_root == root
+    assert len(config.data.files) == 2
+    assert all(path.is_absolute() for path in config.data.files)
+    assert config.experiment.scene == "Multi-view"
+    assert config.model == baseline.model
+    assert config.template == baseline.template
+    assert config.method == baseline.method.model_copy(update={
+        "save_steps": 20,
+        "backend": baseline.method.backend.model_copy(update={"run_name": config.experiment.name})})
+    assert config.method.resume_from is None
+    saved = tmp_path / "blender.yaml"
+    save_config(config, saved)
+    assert load_config(saved) == config
+
+
+@pytest.mark.parametrize("url", ["../renders/image.png", "/renders/image.png", "renders/../image.png"])
+def test_explicit_image_root_rejects_absolute_paths_and_traversal(tmp_path, config, url):
+    path = write_trajectory(tmp_path / "runs")
+    row = json.loads(path.read_text())
+    row["messages"][1]["content"][1]["image_url"]["url"] = url
+    path.write_text(json.dumps(row) + "\n")
+    config.data.files = [path]
+    config.data.image_root = tmp_path
+    data = TrajectoryDataset(config.data, "Single-view", config.experiment.seed).prepare()
+    assert not data.train
+    assert "image URL" in data.rejected[0]["reason"]
+
+
 def test_step_selection_uses_explicit_indices(tmp_path, config):
     write_trajectory(tmp_path, failed_first=True)
     cfg = config.data.model_copy(update={"runs_root": tmp_path})
@@ -140,6 +212,95 @@ def test_split_stays_same_across_scenes(tmp_path, config):
         for example in split:
             assert a.assignments[example.record.instance] == next(name for name in ["train", "validation", "test"]
                                                                  if split is getattr(a, name))
+
+
+@pytest.mark.parametrize("scenes", [
+    ["Single-view", "Multi-view"], ["ActiveVisual", "Full3DInteraction"],
+])
+@pytest.mark.parametrize("explicit_files", [False, True])
+def test_mix_scenes_share_object_splits_and_keep_image_bindings(tmp_path, config, scenes, explicit_files):
+    from test_templates import interactive_record
+
+    paths = []
+    for scene, count in zip(scenes, [10, 15], strict=True):
+        for index in range(count):
+            instance = f"Object{index}Factory"
+            if scene in ("Single-view", "Multi-view"):
+                path = write_trajectory(tmp_path, scene, instance)
+            else:
+                source = interactive_record(tmp_path / f"source-{scene}-{index}", instance=instance)
+                row = json.loads(source.read_text())
+                row["metadata"]["scene"] = scene
+                source.write_text(json.dumps(row) + "\n")
+                path = tmp_path / scene / "gpt-6-astra" / instance / "post_train_trajectory/trajectory.jsonl"
+                path.parent.parent.mkdir(parents=True)
+                source.parent.rename(path.parent)
+            paths.append(path)
+    config.data.runs_root = tmp_path
+    config.data.validation_fraction = .2
+    config.data.test_fraction = .2
+    config.data.files = paths if explicit_files else None
+    data = TrajectoryDataset(config.data, scenes, config.experiment.seed).prepare()
+    assert not data.rejected
+    assert len(data.assignments) == 15
+    assert len(data.source_hashes) == 25
+    examples = [example for split in ("train", "validation", "test") for example in data.examples(split)]
+    assert len(examples) == (50 if scenes[0] == "Single-view" else 75)
+    assert len({example.id for example in examples}) == len(examples)
+    assert {name: list(data.assignments.values()).count(name) for name in ("train", "validation", "test")} == {
+        "train": 9, "validation": 3, "test": 3,
+    }
+    for split in ("train", "validation", "test"):
+        for example in data.examples(split):
+            assert data.assignments[example.record.instance] == split
+            if scenes[0] == "Single-view":
+                assert example.record.images_by_message[1] == (example.record.path.parent / "images/reference.png",)
+                assert example.target_index in (2, 4)
+            else:
+                image = example.record.path.parent / "images/shot.png"
+                assert example.record.images_by_message[4] == (image, image)
+                assert example.target_index in (3, 5, 7)
+    reversed_data = TrajectoryDataset(config.data, list(reversed(scenes)), config.experiment.seed).prepare()
+    assert reversed_data.assignments == data.assignments
+
+
+def test_mix_rejects_scene_metadata_in_wrong_directory(tmp_path, config):
+    path = write_trajectory(tmp_path)
+    write_trajectory(tmp_path, "Multi-view")
+    row = json.loads(path.read_text())
+    row["metadata"]["scene"] = "Multi-view"
+    path.write_text(json.dumps(row) + "\n")
+    config.data.runs_root = tmp_path
+    data = TrajectoryDataset(config.data, ["Single-view", "Multi-view"], config.experiment.seed).prepare()
+    assert len(data.train) == 2
+    assert "Scene metadata does not match input path" in data.rejected[0]["reason"]
+
+
+@pytest.mark.parametrize("name, scenes", [
+    ("view", ["Single-view", "Multi-view"]),
+    ("interaction", ["ActiveVisual", "Full3DInteraction"]),
+])
+def test_mix_configs_and_roundtrip(tmp_path, name, scenes):
+    root = Path(__file__).resolve().parents[2]
+    config = load_config(root / f"configs/sft_{name}_mix_9b_fsdp.yaml")
+    baseline = load_config(root / "configs/sft_single_view_9b_fsdp.yaml")
+    assert config.experiment.scene == scenes
+    assert config.experiment.output_dir != baseline.experiment.output_dir
+    assert config.model == baseline.model
+    assert config.distributed == baseline.distributed
+    assert config.method.epochs == 1
+    assert config.method.resume_from is None
+    snapshot = tmp_path / "mixed.yaml"
+    save_config(config, snapshot)
+    assert load_config(snapshot) == config
+
+
+@pytest.mark.parametrize("scenes", [[], ["Single-view", "Single-view"], ["invalid"]])
+def test_invalid_scene_lists_rejected(config, scenes):
+    payload = config.model_dump()
+    payload["experiment"]["scene"] = scenes
+    with pytest.raises(ValidationError):
+        TrainingConfig.model_validate(payload)
 
 
 def test_split_uses_only_selected_scene_paths_and_instances(tmp_path, config):

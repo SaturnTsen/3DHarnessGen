@@ -9,6 +9,79 @@ from harness_training.templates.qwen import QwenTemplate
 from harness_training.training.collator import SFTCollator
 
 
+class ProcessorCallCounter:
+    """Count public Processor calls without modifying the real Processor."""
+
+    def __init__(self, processor):
+        self.processor = processor
+        self.calls = 0
+        self.tokenizer = processor.tokenizer
+        self.image_processor = processor.image_processor
+        self.image_token = processor.image_token
+        self.replace_image_token = processor.replace_image_token
+        self.apply_chat_template = processor.apply_chat_template
+        self.save_pretrained = processor.save_pretrained
+
+    def __call__(self, **kwargs):
+        self.calls += 1
+        return self.processor(**kwargs)
+
+
+def encode_with_two_processor_calls(template, example):
+    """Reference the original encoding path for exact output comparisons."""
+    from PIL import Image
+
+    cfg = template.config
+    rendered = template.render(example)
+    images = []
+    for path in rendered.images:
+        with Image.open(path) as image:
+            images.append(image.convert(cfg.image_mode))
+    kwargs = dict(images=images or None, return_tensors=cfg.return_tensors,
+                  add_special_tokens=cfg.add_special_tokens, padding=cfg.padding,
+                  truncation=cfg.truncation)
+    full = dict(template.processor(text=[rendered.text], **kwargs))
+    prompt = template.processor(text=[rendered.prompt], **kwargs)
+    labels = full["input_ids"].clone()
+    labels[:, :prompt["input_ids"].shape[1]] = cfg.label_ignore_index
+    labels[full["attention_mask"] == cfg.attention_padding_value] = cfg.label_ignore_index
+    full["labels"] = labels
+    return full
+
+
+@pytest.mark.parametrize("layout", ["text", "one_image", "multiple_images", "repeated_image", "tool", "long_script"])
+def test_encode_reuses_image_grids_and_matches_original(layout, tmp_path, config, processor):
+    from PIL import Image
+
+    if layout == "tool":
+        interactive_record(tmp_path)
+        data_cfg = config.data.model_copy(update={"runs_root": tmp_path})
+        example = TrajectoryDataset(data_cfg, "ActiveVisual", config.experiment.seed).prepare().train[1]
+    else:
+        path = next(config.data.runs_root.rglob("trajectory.jsonl"))
+        row = json.loads(path.read_text())
+        Image.new("RGB", (64, 32), "red").save(path.parent / "images/second.png")
+        references = {
+            "text": [], "one_image": ["reference.png"],
+            "multiple_images": ["second.png", "reference.png"],
+            "repeated_image": ["second.png", "reference.png", "second.png"],
+            "long_script": ["reference.png"],
+        }[layout]
+        row["messages"][1]["content"] = [{"type": "text", "text": "Write a Blender script."}] + [
+            {"type": "image_url", "image_url": {"url": f"images/{name}"}} for name in references]
+        if layout == "long_script":
+            row["messages"][2]["content"] = "import bpy\n" + "print('complete script')\n" * 300
+        path.write_text(json.dumps(row) + "\n")
+        example = TrajectoryDataset(config.data, "Single-view", config.experiment.seed).prepare().train[0]
+    expected = encode_with_two_processor_calls(QwenTemplate(config.template, processor), example)
+    counter = ProcessorCallCounter(processor)
+    actual = QwenTemplate(config.template, counter).encode(example)
+    assert counter.calls == 1
+    assert actual.keys() == expected.keys()
+    for key in expected:
+        assert torch.equal(actual[key], expected[key]), key
+
+
 def test_target_only_labels_and_padding(config, processor):
     data = TrajectoryDataset(config.data, config.experiment.scene, config.experiment.seed).prepare()
     template = QwenTemplate(config.template, processor)

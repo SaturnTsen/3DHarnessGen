@@ -39,6 +39,24 @@ pixi run post-train preview --config configs/sft_single_view.yaml --limit 1
 | ActiveVisual | `configs/sft_active_visual.yaml` |
 | Full3DInteraction | `configs/sft_full_3d_interaction.yaml` |
 
+另外提供两份 9B + NF4 QLoRA + 双卡 FSDP2 混合训练配置：
+
+| 混合场景 | 配置 |
+| --- | --- |
+| Single-view + Multi-view | `configs/sft_view_mix_9b_fsdp.yaml` |
+| ActiveVisual + Full3DInteraction | `configs/sft_interaction_mix_9b_fsdp.yaml` |
+
+混合配置通过 `experiment.scene` 列表选择场景，直接读取各场景原有轨迹，按可用样本数量合并，不重采样。
+先将所有场景的对象合并去重，再按对象统一划分训练、验证、测试集（80% / 10% / 10%，数量向下取整），同一对象不会跨集合。
+两组各自从基础模型开始训练一轮，分别保存结果；接受 `OK` 和 `UNKNOWN` 步骤，缺失图片的样本会记录并跳过。
+
+```bash
+pixi run post-train audit --config configs/sft_view_mix_9b_fsdp.yaml
+pixi run post-train audit --config configs/sft_interaction_mix_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/sft_view_mix_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/sft_interaction_mix_9b_fsdp.yaml
+```
+
 ## Hydra 配置组合
 
 四个场景配置现在通过 Hydra 组合公共参数，训练前仍由 Pydantic 严格校验。
@@ -147,7 +165,35 @@ FSDP2 使用模型声明的层类型进行分片，使用普通梯度检查点�
 QLoRA + FSDP 要求量化存储类型与 `model.dtype` 一致。
 不要在各个 torchrun 进程内运行 Hydra `--multirun`。
 
+27B 的 Single-view 分块损失与双卡 FSDP2 短训配置如下，保留完整输入和图片，
+使用 BF16 LoRA、不量化，梯度累积为 1，最多更新 3 步，并关闭验证和在线记录：
+
+```bash
+pixi run post-train-distributed train --config configs/sft_single_view_fsdp_trial.yaml
+```
+
+`chunked_nll` 分块计算当前回复的词表分数与交叉熵；长序列的模型内部激活仍占用显存。
+该配置用于检查训练能否运行，不能代替完整训练或验证集评估。
+重复试跑时需显式指定新的 `experiment.output_dir`。
+在双卡 A6000 上，27B BF16 LoRA 的最长 26,749-token 样本仍然 OOM；
+详见 [实测记录](docs/reports/CHUNKED_NLL_FSDP_2026-10-27.md)。
+
 ### 官方 Qwen3.5-9B
+
+`configs/sft_single_view_9b_fsdp.yaml` 使用 9B + NF4 QLoRA + 双卡 FSDP2，
+保留全部长样本训练一轮。最长 26,749-token 样本的两步压力测试已通过，
+两卡峰值分配约 25.72 / 23.51 GiB，详见
+[显存测试记录](docs/reports/QWEN35_9B_FSDP_2026-10-27.md)。
+
+该配置已完成 Single-view 全量一轮训练（320 条训练、40 条验证、20 次更新），
+训练损失 0.346174，验证损失 0.339337；最终 LoRA 已在新进程中精确重载并通过图片输入生成验证。
+[完整报告与加载方法](outputs/post_training/Single-view/qwen35_9b_qlora_fsdp_epoch1_v1/RUN_REPORT.md)
+包含权重校验、逐样本数据来源、完整日志与 W&B 结果链接。
+
+```bash
+PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
+  pixi run post-train-distributed train --config configs/sft_single_view_9b_fsdp.yaml
+```
 
 `configs/model/qwen35_9b.yaml` 使用下载到 `~/models/Qwen3.5-9B` 的官方多模态权重。
 `configs/sft_single_view_9b.yaml` 为 Single-view 的双卡 DDP + NF4 QLoRA 配置，

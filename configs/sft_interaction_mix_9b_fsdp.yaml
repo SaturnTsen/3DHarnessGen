@@ -1,0 +1,24 @@
+defaults:
+- sft_single_view_9b_fsdp
+- _self_
+experiment:
+  name: sft_interaction_mix_qwen35_9b_qlora_fsdp
+  scene:
+  - ActiveVisual
+  - Full3DInteraction
+  output_dir: ../outputs/post_training/Interaction-mix/qwen35_9b_qlora_fsdp_epoch1_v1
+data:
+  # Pool both scenes and split by object before selecting training replies.
+  files: null
+  image_root: null
+  instances: null
+method:
+  resume_from: null
+tracking:
+  group: Interaction-mix
+  tags:
+  - ActiveVisual
+  - Full3DInteraction
+  - mix
+  - lora
+  - fsdp

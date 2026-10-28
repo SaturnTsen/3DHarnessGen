@@ -1,0 +1,15 @@
+defaults:
+- sft_single_view_9b_fsdp
+- override tracking: disabled
+- _self_
+experiment:
+  name: sft_single_view_qwen35_9b_qlora_fsdp_trial
+  output_dir: ../outputs/post_training/Single-view/qwen35_9b_qlora_fsdp_longest_v1
+method:
+  max_steps: 2
+  gradient_accumulation_steps: 1
+  save_steps: 2
+  warmup_ratio: 0
+  backend:
+    eval_strategy: 'no'
+    do_eval: false

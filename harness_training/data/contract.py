@@ -11,7 +11,7 @@ import json
 from pathlib import PurePosixPath
 from typing import Annotated, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationInfo, field_validator, model_validator
 from pydantic_yaml import parse_yaml_raw_as
 
 def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -51,9 +51,12 @@ class ImageURL(BaseModelStrict):
 
     @field_validator("url")
     @classmethod
-    def relative_image(cls, value: str) -> str:
+    def relative_image(cls, value: str, info: ValidationInfo) -> str:
         path = PurePosixPath(value)
-        if path.is_absolute() or ".." in path.parts or len(path.parts) < 2 or path.parts[0] != "images" or "\\" in value:
+        explicit_root = bool(info.context and info.context.get("explicit_image_root"))
+        if path.is_absolute() or ".." in path.parts or len(path.parts) < 2 or "\\" in value:
+            raise ValueError("image URL must be a relative path without '..'")
+        if not explicit_root and path.parts[0] != "images":
             raise ValueError("image URL must be a relative images/... path without '..'")
         return value
 
@@ -408,7 +411,9 @@ class Trajectory(BaseModelStrict):
 
 
 
-def validate_record(raw: str) -> Trajectory:
+def validate_record(raw: str, *, explicit_image_root: bool = False) -> Trajectory:
     # Require JSON syntax before using the project's YAML/Pydantic reader.
     value = load_json(raw)
+    if explicit_image_root:
+        return Trajectory.model_validate(value, context={"explicit_image_root": True})
     return parse_yaml_raw_as(Trajectory, json.dumps(value, ensure_ascii=False))
