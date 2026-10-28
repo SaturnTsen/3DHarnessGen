@@ -60,6 +60,7 @@ lora:
   - o_proj
   task_type: CAUSAL_LM
 name: qwen
+init_from: null
 trust_remote_code: false
 tuning: lora
 use_cache: false

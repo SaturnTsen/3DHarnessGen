@@ -184,6 +184,7 @@ class LongContextConfig(StrictConfig):
 class ModelConfig(StrictConfig):
     name: str = Field(min_length=1)
     path: Path
+    init_from: Path | None
     max_length: int = Field(ge=16)
     dtype: Literal["bfloat16", "float16", "float32"]
     tuning: Literal["lora", "full"]
@@ -404,6 +405,8 @@ class TrainingConfig(StrictConfig):
 
     @model_validator(mode="after")
     def compatible_training(self):
+        if self.model.init_from is not None and self.model.tuning != "lora":
+            raise ValueError("model.init_from currently requires tuning: lora")
         backend = self.method.backend
         long_context = self.method.long_context
         if long_context is not None:
@@ -477,6 +480,7 @@ def parse_config(composed, directory: Path) -> TrainingConfig:
     for section, field in [(config.experiment, "output_dir"), (config.data, "runs_root"),
                            (config.data, "image_root"),
                            (config.model, "path"),
+                           (config.model, "init_from"),
                            (config.method, "resume_from")]:
         value = getattr(section, field)
         if value is not None:

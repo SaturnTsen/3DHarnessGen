@@ -134,6 +134,21 @@ class Trainer:
             sources[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(self.config.model.path.glob("*.json")) + sorted(self.config.model.path.glob("*.jinja")):
             sources[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+        initialization = self.config.model.init_from
+        if initialization is not None:
+            for name in ("adapter_config.json", "adapter_model.safetensors", "adapter_model.bin",
+                         "pytorch_model_fsdp_0/.metadata"):
+                path = initialization / name
+                if path.is_file():
+                    sources[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
+            if (initialization / "pytorch_model_fsdp_0/.metadata").is_file():
+                snapshot = initialization.parent.parent / "resolved_config.yaml"
+                sources[str(snapshot)] = hashlib.sha256(snapshot.read_bytes()).hexdigest()
+                # FSDP shards also hold the frozen base model. Track their identity
+                # without reading hundreds of GB just to fingerprint the adapters.
+                for path in sorted((initialization / "pytorch_model_fsdp_0").glob("*.distcp")):
+                    stat = path.stat()
+                    sources[str(path)] = hashlib.sha256(f"{stat.st_size}:{stat.st_mtime_ns}".encode()).hexdigest()
         versions = {name: importlib.metadata.version(name) for name in ("torch", "transformers", "trl", "pydantic-yaml")}
         code_root = Path(__file__).resolve().parents[1]
         code = {str(path.relative_to(code_root)): hashlib.sha256(path.read_bytes()).hexdigest()

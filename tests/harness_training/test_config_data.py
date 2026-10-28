@@ -98,6 +98,31 @@ def test_resume_path_resolves_from_yaml(config, tmp_path):
     assert load_config(path).method.resume_from == tmp_path / "checkpoints/checkpoint-1"
 
 
+def test_initialization_path_resolves_from_yaml(config, tmp_path):
+    config.model.init_from = Path("previous/checkpoints/checkpoint-40")
+    path = tmp_path / "config.yaml"
+    save_config(config, path)
+    assert load_config(path).model.init_from == tmp_path / "previous/checkpoints/checkpoint-40"
+
+
+def test_initialization_requires_lora(config):
+    config.model.init_from = Path("checkpoint")
+    config.model.tuning = "full"
+    with pytest.raises(ValidationError, match="requires tuning: lora"):
+        TrainingConfig.model_validate(config.model_dump())
+
+
+def test_initialization_rejects_missing_source_before_processor(config, tmp_path):
+    config.model.init_from = tmp_path / "missing"
+    config.method.use_cpu = True
+    trainer = Trainer(config)
+    with pytest.raises(ValueError, match="existing checkpoint"):
+        trainer.run()
+    assert isinstance(trainer.model, QwenModel)
+    assert trainer.model.model is None
+    assert trainer.model._processor is None
+
+
 def test_split_rejects_invalid_ratios(config):
     with pytest.raises(ValidationError, match="must be less than 1"):
         DataConfig.model_validate({**config.data.model_dump(), "validation_fraction": .6, "test_fraction": .4})

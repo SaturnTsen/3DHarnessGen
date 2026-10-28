@@ -284,6 +284,35 @@ method:
 
 恢复时检查数据、图片、模板、模型配置及关键训练参数是否变化。允许调整训练总步数和日志／保存频率。
 
+要在同一个基础模型上继承上一阶段的 LoRA 权重、改用另一份配置的数据训练，设置
+`model.init_from` 为上一阶段的 checkpoint 或 `final` 目录，并保持新阶段的
+`method.resume_from=null`。基础模型路径、LoRA 设置必须与来源一致；FSDP 分片还要求
+适配器设置一致，并保留来源运行目录中的 `resolved_config.yaml`。新阶段可以修改数据、
+学习率和训练时长，使用新的输出目录与 W&B run，优化器、调度器和步数从头开始。
+当前这个入口支持 LoRA/QLoRA，直接读取 FSDP2 checkpoint 中的可训练权重，无需合并基础模型。
+`model.init_from` 默认在公共模型配置中显式填写为 `null`，路径相对于当前 YAML 所在目录。
+
+例如，View-mix 的 `checkpoint-40` 接着训练 Interaction-mix：
+
+```bash
+WANDB_NAME=qwen38-27b-interaction-from-view-v1 \
+CUDA_VISIBLE_DEVICES=0,1 \
+PYTORCH_ALLOC_CONF=expandable_segments:True \
+OMP_NUM_THREADS=4 \
+pixi run python -m torch.distributed.run \
+  --standalone --nnodes=1 --nproc-per-node=2 \
+  -m harness_training.cli train \
+  --config configs/sft_interaction_mix_27b_fsdp.yaml \
+  model.init_from=../outputs/post_training/View-mix/qwen38_27b_qlora_fsdp_epoch1_v1/checkpoints/checkpoint-40 \
+  method.resume_from=null \
+  experiment.output_dir=../outputs/post_training/Interaction-mix/qwen38_27b_from_view_epoch1_v1 \
+  tracking.entity=lingada60-institut-polytechnique-de-paris \
+  tracking.project=huggingface
+```
+
+新阶段中断后仍用新阶段的 config 和相同 `model.init_from`，将 `method.resume_from`
+改成新输出目录下的 checkpoint；这时恢复新阶段自己的优化器和步数。
+
 输出包含配置快照、数据报告、对象划分、拒绝原因、checkpoint 和 `final`。LoRA 保存 adapter 与 Processor；全参数训练保存完整模型。验证集 loss 由 SFT 后端计算。实际 Blender 重建质量和交互任务评估尚未接入。
 
 交互场景仅使用该步骤历史中选定的 `additional_tools` 声明，不回退到静态工具文件。选定历史内的 system/developer 指令按顺序合并为 Qwen 的 system 输入；归档角色不修改。function 参数从 JSON 字符串解析为对象；custom 工具根据 YAML 的 `template.custom_tools` 显式映射（当前 `exec: input`），包装成函数调用，原始代码保持不变。工具命名空间和 custom 输入格式作为工具说明保留。未知 custom 映射会记录为编码失败。
