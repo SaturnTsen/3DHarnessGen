@@ -3,6 +3,9 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import os
+import time
+from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Literal, cast, TYPE_CHECKING
@@ -33,6 +36,11 @@ def write_json(path: Path, value: Mapping[str, JsonValue] | DataReport | Manifes
     temporary.replace(path)
 
 
+def preflight_log(message: str) -> None:
+    if int(os.environ.get("RANK", "0")) == 0:
+        print(f"[preflight] {message}", flush=True)
+
+
 class Trainer:
     """Unified entrypoint. Concrete components are initialized directly."""
 
@@ -61,19 +69,33 @@ class Trainer:
         return self._template
 
     def prepare(self, *, encode: bool = False) -> DatasetBundle:
+        if encode:
+            preflight_log("开始读取轨迹、校验格式和检查图片；尚未加载模型权重。")
         data = self.dataset.prepare()
         if encode:
+            preflight_log(f"数据检查完成：{data.report()['samples']}，拒绝记录 {len(data.rejected)} 条。")
+            shown_errors = 0
             for split in ("train", "validation", "test"):
                 accepted: list[TrainingExample] = []
-                for example in data.examples(split):
+                examples = data.examples(split)
+                preflight_log(f"开始编码 {split}：{len(examples)} 条。")
+                last_log = time.monotonic()
+                for index, example in enumerate(examples, 1):
                     try:
                         self.template.encode(example)
                     except (TemplateError, OSError, ValueError) as exc:
                         data.rejected.append({"id": example.id, "path": str(example.record.path),
                                               "reason": str(exc), "stage": "encoding",
                                               "too_long": isinstance(exc, SampleTooLong)})
+                        if not isinstance(exc, SampleTooLong) and shown_errors < 3:
+                            preflight_log(f"编码失败示例 {example.id}：{str(exc)[:500]}")
+                            shown_errors += 1
                     else:
                         accepted.append(example)
+                    if index == len(examples) or time.monotonic() - last_log >= 20:
+                        preflight_log(f"{split} 编码 {index}/{len(examples)}，保留 {len(accepted)}，"
+                                      f"拒绝 {index - len(accepted)}。")
+                        last_log = time.monotonic()
                 setattr(data, split, accepted)
         return data
 
@@ -123,8 +145,6 @@ class Trainer:
         return {**payload, "fingerprint": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()}
 
     def run(self) -> Metrics:
-        import os
-
         # Revalidate programmatic edits before loading the Processor or weights.
         TrainingConfig.model_validate(self.config.model_dump())
         world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -146,20 +166,30 @@ class Trainer:
                 raise ValueError("resume_from must be a saved training checkpoint")
             if resume_from.parent != (output / "checkpoints").resolve():
                 raise ValueError("Resume checkpoint must belong to this output directory")
+        preflight_log("检查训练运行环境和优化内核。")
         self.model.validate_runtime()
         # Validate and measure inputs before allocating model weights.
         data = self.prepare(encode=True)
+        if int(os.environ.get("RANK", "0")) == 0:
+            self.save_report(data)
+        if not data.train:
+            reasons = Counter(item["reason"] for item in data.rejected)
+            summary = "; ".join(f"{count} 条：{reason[:500]}" for reason, count in reasons.most_common(3))
+            raise ValueError(
+                f"No usable training samples after preflight. Rejected: {len(data.rejected)}. "
+                f"Most common reasons: {summary}. "
+                f"Details: {output / 'rejected_samples.jsonl'}"
+            )
+        preflight_log("编码完成，计算数据指纹；模型权重尚未加载。")
         manifest = self._manifest(data)
         if resume_from is not None:
             prior = json.loads((output / "manifest.json").read_text())
             if prior["fingerprint"] != manifest["fingerprint"]:
                 raise ValueError("Data, model, template, or training settings changed since this checkpoint")
-        if not data.train:
-            raise ValueError(f"No usable training samples after preflight: {data.report()}")
         if int(os.environ.get("RANK", "0")) == 0:
-            self.save_report(data)
             save_config(self.config, output / "resolved_config.yaml")
             write_json(output / "manifest.json", manifest)
+        preflight_log("预检查完成，进入训练后端并加载模型权重。")
         with tracking_session(self.config, resume_from, is_main_process=int(os.environ.get("RANK", "0")) == 0):
             metrics = self.method.run(self.model, self.template, data, output, resume_from)
             # Distributed training has a single writer for the final metrics.

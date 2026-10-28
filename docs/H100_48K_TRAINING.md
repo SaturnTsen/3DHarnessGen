@@ -64,6 +64,11 @@ pixi run test-post-training tests/harness_training/test_long_context.py -v -ra \
 # 新增的双卡 NF4 + 长上下文小模型用例也验证保存和恢复。
 pixi run test-post-training tests/harness_training/test_distributed.py -v -ra -k long_context
 
+# 两份混合任务入口：实际执行 torchrun，验证混合注意力、NF4、
+# 梯度累积、验证、参数更新、保存和恢复。四卡用例在不足四卡时跳过。
+pixi run python -m pytest tests/harness_training/test_mix_distributed.py -v -ra \
+  --basetemp=temp/h100_48k_tests/mix
+
 # 再检查已有模板、标签、量化、多卡保存和恢复行为。
 pixi run test-post-training
 ```
@@ -100,4 +105,4 @@ PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
 
 超长记录会完整跳过并保存拒绝原因，不删除图片、不截断脚本。既有两个交互场景的合计长度统计中，49,152 预算覆盖 2,860/6,941 条；这只是跨场景汇总，对应交互混合任务；实际运行数量以检查和编码报告为准。
 
-本次仅完成代码、配置、依赖锁与静态检查；未在开发机运行新增测试、加载大模型或执行 GPU 训练。目标服务器仍需验证 CUDA 扩展构建、混合注意力正确性、双卡通信、峰值显存和恢复行为。上述试跑命令不等于已验证可训练。
+开发机的两张 RTX A6000 已通过两份混合任务配置的小模型训练测试，覆盖原生混合注意力、NF4、FSDP2、梯度累积、验证、LoRA 参数更新、保存和恢复。测试保留原配置的优化开关和分块参数，替换模型和数据并缩短训练；不代表真实 27B、48k 输入或 H100 显存验证。四进程真实数据 audit 通过，四卡 CUDA 训练因本机仅两卡而跳过。目标服务器仍须验证真实模型、最长输入、四卡通信和峰值显存；上述试跑命令不等于这些项目已通过。

@@ -95,8 +95,16 @@ class QwenTemplate(BaseTemplate):
             text=[rendered.text], images=decoded or None, return_tensors=self.config.return_tensors,
             add_special_tokens=self.config.add_special_tokens, padding=self.config.padding,
             truncation=self.config.truncation))
-        prompt = self.processor(
-            text=[rendered.prompt], images=decoded or None, return_tensors=self.config.return_tensors,
+        parts = rendered.prompt.split(self.processor.image_token)
+        if len(parts) - 1 != len(rendered.images):
+            raise TemplateError("Prompt image placeholders do not match images")
+        prompt_text = parts[0] + "".join(
+            self.processor.replace_image_token(full, image_idx=index) + suffix
+            for index, suffix in enumerate(parts[1:]))
+        # Reuse the full input's image grids; tokenize the prompt without
+        # decoding and preprocessing all images a second time.
+        prompt = self.processor.tokenizer(
+            [prompt_text], return_tensors=self.config.return_tensors,
             add_special_tokens=self.config.add_special_tokens, padding=self.config.padding,
             truncation=self.config.truncation)
         ids, prompt_ids = full["input_ids"], prompt["input_ids"]
