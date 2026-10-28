@@ -3,6 +3,9 @@
 /data
 /3dcodeverse
 
+# Model
+/models
+
 # pixi environments
 /.pixi
 .pixi/*
