@@ -74,6 +74,30 @@ CUDA_VISIBLE_DEVICES=0,1 PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THR
   pixi run post-train-distributed train --config configs/sft_interaction_mix_27b_fsdp.yaml
 ```
 
+## 3DCodeVerse 分轮混合训练
+
+三轮配置使用 Qwen3.5-9B、NF4 QLoRA 和 FSDP2，每轮训练 2 个 epoch。
+Replay 表示全量保留此前数据，不额外重采样；Blender 使用 Bioinspired3D 和
+3DCodeBench 的精选 `instances_geo` / `instances_tex`，不使用 `*_full`。
+
+| 配置 | Blender geo / tex | DeepCAD | Articraft CadQuery | URDF | 原始记录总数 |
+| --- | --- | --- | --- | --- | --- |
+| `configs/3dcodeverse_r2_sft_9b_fsdp.yaml` | 6,510 / 3,737 | v1：26,566 | 全部 6 个子集：6,878 | 无 | 43,691 |
+| `configs/3dcodeverse_r3_sft_9b_fsdp.yaml` | 6,510 / 3,737 | v1、v1_1、v1_2：79,888 | 6,878 | 无 | 97,013 |
+| `configs/3dcodeverse_r4_sft_9b_fsdp.yaml` | 6,510 / 3,737 | 全部 5 个子集：128,198 | 6,878 | geo / tex：6,145 | 151,468 |
+
+每轮通过 `model.init_from` 加载上一轮的适配器权重，`method.resume_from: null`
+使优化器、调度器和训练步数重新开始；R3、R4 分别指向 R2、R3 输出目录下的 `final`。
+R2 指向用户指定的 R1 `checkpoint-1080`，迁移机器时需检查该绝对路径是否可用。
+每轮分别按对象划分验证集，比例沿用 Blender 配置；表中数量尚未扣除验证集、缺失图片或超长样本。
+
+```bash
+pixi run post-train audit --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/3dcodeverse_r3_sft_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/3dcodeverse_r4_sft_9b_fsdp.yaml
+```
+
 ## 独立配置与命令行覆盖
 
 `configs/*.yaml` 的所有顶层入口只通过 `defaults` 引用公共配置组，任务入口之间不互相继承。

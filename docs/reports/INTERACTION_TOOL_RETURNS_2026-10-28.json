@@ -1,0 +1,453 @@
+{
+  "scope": "Only gpt-6-astra post_train_trajectory/trajectory.jsonl for ActiveVisual and Full3DInteraction; train subset used in main tables.",
+  "train_samples": 5583,
+  "train_input_tokens": 311884201,
+  "agreed_four_initial_groups_tokens": 5392,
+  "agreed_four_initial_groups_share_of_input": 9.652151633035109,
+  "discovery": {
+    "total_tokens": 55939721,
+    "groups": {
+      "Blender API/手册检索接口": {
+        "tokens": 16835054,
+        "percent_within_discovery": 30.09499099932944
+      },
+      "Blender Python 执行接口": {
+        "tokens": 14637982,
+        "percent_within_discovery": 26.16742046318036
+      },
+      "场景/对象/文件信息查询接口": {
+        "tokens": 12927923,
+        "percent_within_discovery": 23.11045312507011
+      },
+      "只读参考模型的视口/截图接口": {
+        "tokens": 4294812,
+        "percent_within_discovery": 7.677571362931896
+      },
+      "Blender 截图接口": {
+        "tokens": 2563192,
+        "percent_within_discovery": 4.582060750714148
+      },
+      "Blender 界面导航接口": {
+        "tokens": 2549793,
+        "percent_within_discovery": 4.5581081821984775
+      },
+      "渲染及缩略图接口": {
+        "tokens": 1680005,
+        "percent_within_discovery": 3.0032416500611436
+      },
+      "其他服务接口": {
+        "tokens": 239680,
+        "percent_within_discovery": 0.42846120022657963
+      },
+      "未完整解析的说明及格式": {
+        "tokens": 211280,
+        "percent_within_discovery": 0.37769226628784935
+      }
+    },
+    "tools": [
+      {
+        "name": "mcp__official_blender_mcp__execute_blender_code",
+        "tokens": 10613641,
+        "percent_within_discovery": 18.973353478112628
+      },
+      {
+        "name": "mcp__official_blender_mcp__search_api_docs",
+        "tokens": 7549499,
+        "percent_within_discovery": 13.49577521132077
+      },
+      {
+        "name": "mcp__official_blender_mcp__search_manual_docs",
+        "tokens": 7543468,
+        "percent_within_discovery": 13.484993963412867
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_datablocks",
+        "tokens": 4200250,
+        "percent_within_discovery": 7.508528689301114
+      },
+      {
+        "name": "mcp__official_blender_mcp__execute_blender_code_for_cli",
+        "tokens": 4024341,
+        "percent_within_discovery": 7.19406698506773
+      },
+      {
+        "name": "mcp__blender_viewport_only__execute_blender_code",
+        "tokens": 3487377,
+        "percent_within_discovery": 6.2341694553678595
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_datablocks_for_cli",
+        "tokens": 2949380,
+        "percent_within_discovery": 5.272425295077893
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_python_api_docs",
+        "tokens": 1742087,
+        "percent_within_discovery": 3.1142218245958
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_screenshot_of_area_as_image",
+        "tokens": 1274307,
+        "percent_within_discovery": 2.278000278192306
+      },
+      {
+        "name": "mcp__official_blender_mcp__render_viewport_to_path",
+        "tokens": 977637,
+        "percent_within_discovery": 1.747661558769662
+      },
+      {
+        "name": "mcp__blender_viewport_only__get_viewport_screenshot",
+        "tokens": 807435,
+        "percent_within_discovery": 1.4434019075640367
+      },
+      {
+        "name": "mcp__official_blender_mcp__jump_to_view3d_object_data_by_name",
+        "tokens": 714722,
+        "percent_within_discovery": 1.277664577554829
+      },
+      {
+        "name": "mcp__official_blender_mcp__render_thumbnail_to_path",
+        "tokens": 702368,
+        "percent_within_discovery": 1.2555800912914814
+      },
+      {
+        "name": "mcp__official_blender_mcp__jump_to_view3d_object_by_name",
+        "tokens": 701628,
+        "percent_within_discovery": 1.254257238787444
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_screenshot_of_window_as_image",
+        "tokens": 660839,
+        "percent_within_discovery": 1.1813412512372023
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_missing_files",
+        "tokens": 645451,
+        "percent_within_discovery": 1.1538330697073016
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_screenshot_of_window_as_json",
+        "tokens": 628046,
+        "percent_within_discovery": 1.1227192212846395
+      },
+      {
+        "name": "mcp__official_blender_mcp__jump_to_tab_by_space_type",
+        "tokens": 624980,
+        "percent_within_discovery": 1.1172383215854795
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_missing_files_for_cli",
+        "tokens": 621852,
+        "percent_within_discovery": 1.1116465882981432
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_of_linked_libraries",
+        "tokens": 606679,
+        "percent_within_discovery": 1.084522749049821
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_of_linked_libraries_for_cli",
+        "tokens": 586915,
+        "percent_within_discovery": 1.0491918613609104
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_usage_guess",
+        "tokens": 567106,
+        "percent_within_discovery": 1.013780529938646
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_object_detail_summary",
+        "tokens": 557086,
+        "percent_within_discovery": 0.9958683919785728
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_path_info_for_cli",
+        "tokens": 551497,
+        "percent_within_discovery": 0.9858772802960529
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_path_info",
+        "tokens": 551365,
+        "percent_within_discovery": 0.985641312011549
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_objects_summary",
+        "tokens": 547613,
+        "percent_within_discovery": 0.9789340922883759
+      },
+      {
+        "name": "mcp__official_blender_mcp__get_blendfile_summary_usage_guess_for_cli",
+        "tokens": 542729,
+        "percent_within_discovery": 0.9702032657617294
+      },
+      {
+        "name": "mcp__official_blender_mcp__jump_to_tab_by_name",
+        "tokens": 508463,
+        "percent_within_discovery": 0.908948044270725
+      },
+      {
+        "name": "unparsed_or_format",
+        "tokens": 211280,
+        "percent_within_discovery": 0.37769226628784935
+      },
+      {
+        "name": "mcp__codex_apps__google_drive_bulk_update_file_comments",
+        "tokens": 76560,
+        "percent_within_discovery": 0.1368616050122953
+      },
+      {
+        "name": "mcp__codex_apps__google_drive_copy_file",
+        "tokens": 69920,
+        "percent_within_discovery": 0.12499168524633865
+      },
+      {
+        "name": "mcp__codex_apps__google_drive_batch_update_document",
+        "tokens": 31400,
+        "percent_within_discovery": 0.05613184949563835
+      },
+      {
+        "name": "mcp__codex_apps__google_drive_batch_update_spreadsheet",
+        "tokens": 31320,
+        "percent_within_discovery": 0.0559888384141208
+      },
+      {
+        "name": "mcp__codex_apps__google_drive_batch_update_presentation",
+        "tokens": 30480,
+        "percent_within_discovery": 0.05448722205818653
+      }
+    ]
+  },
+  "classification_correction": {
+    "reason": "Skill files printed after tool listings were included in the prior coarse discovery category; now assigned to tool_skill_docs.",
+    "all_samples_tokens_moved": 6993899,
+    "train_tokens_moved": 6031134,
+    "unique_affected_messages": 71
+  },
+  "ordinary": {
+    "total_tokens": 65315374,
+    "categories": {
+      "geometry": {
+        "label": "含几何、组件或数值测量的返回",
+        "tokens": 33682607,
+        "percent_within_other_tool_text": 51.569186452181995,
+        "percent_of_full_input": 10.799715693197296
+      },
+      "execution": {
+        "label": "其他执行返回（含未细分的自定义测量）",
+        "tokens": 20460933,
+        "percent_within_other_tool_text": 31.326365826214207,
+        "percent_of_full_input": 6.560426252562887
+      },
+      "scene": {
+        "label": "场景、对象、材质结构返回",
+        "tokens": 7457927,
+        "percent_within_other_tool_text": 11.418333147721086,
+        "percent_of_full_input": 2.391248731448247
+      },
+      "errors": {
+        "label": "含明确报错的返回",
+        "tokens": 2074942,
+        "percent_within_other_tool_text": 3.1768048974197103,
+        "percent_of_full_input": 0.6652924365348022
+      },
+      "docs": {
+        "label": "API/手册文档查询返回",
+        "tokens": 1166363,
+        "percent_within_other_tool_text": 1.785740367956861,
+        "percent_of_full_input": 0.3739730952258143
+      },
+      "discovery_wrapper": {
+        "label": "工具发现/技能文档的伴随状态封装",
+        "tokens": 251798,
+        "percent_within_other_tool_text": 0.38551107431460163,
+        "percent_of_full_input": 0.08073445182303415
+      },
+      "other": {
+        "label": "混合及其他返回",
+        "tokens": 147620,
+        "percent_within_other_tool_text": 0.22601110727774443,
+        "percent_of_full_input": 0.04733166974366874
+      },
+      "shell": {
+        "label": "命令行、文件及脚本文本返回",
+        "tokens": 73184,
+        "percent_within_other_tool_text": 0.11204712691379522,
+        "percent_of_full_input": 0.02346511935049894
+      }
+    }
+  },
+  "ordinary_by_train_scene": {
+    "ActiveVisual": {
+      "total_tokens": 6881869,
+      "categories": {
+        "execution": {
+          "label": "其他执行返回（含未细分的自定义测量）",
+          "tokens": 3662876,
+          "percent_within_other_tool_text": 53.22501779676422
+        },
+        "scene": {
+          "label": "场景、对象、材质结构返回",
+          "tokens": 1538553,
+          "percent_within_other_tool_text": 22.356615622878028
+        },
+        "docs": {
+          "label": "API/手册文档查询返回",
+          "tokens": 885636,
+          "percent_within_other_tool_text": 12.86912029275768
+        },
+        "errors": {
+          "label": "含明确报错的返回",
+          "tokens": 236868,
+          "percent_within_other_tool_text": 3.4419138173074786
+        },
+        "geometry": {
+          "label": "含几何、组件或数值测量的返回",
+          "tokens": 230523,
+          "percent_within_other_tool_text": 3.3497150265429347
+        },
+        "discovery_wrapper": {
+          "label": "工具发现/技能文档的伴随状态封装",
+          "tokens": 166986,
+          "percent_within_other_tool_text": 2.4264629274402054
+        },
+        "other": {
+          "label": "混合及其他返回",
+          "tokens": 90123,
+          "percent_within_other_tool_text": 1.3095715713274985
+        },
+        "shell": {
+          "label": "命令行、文件及脚本文本返回",
+          "tokens": 70304,
+          "percent_within_other_tool_text": 1.0215829449819518
+        }
+      }
+    },
+    "Full3DInteraction": {
+      "total_tokens": 58433505,
+      "categories": {
+        "geometry": {
+          "label": "含几何、组件或数值测量的返回",
+          "tokens": 33452084,
+          "percent_within_other_tool_text": 57.248121604206354
+        },
+        "execution": {
+          "label": "其他执行返回（含未细分的自定义测量）",
+          "tokens": 16798057,
+          "percent_within_other_tool_text": 28.74730345201781
+        },
+        "scene": {
+          "label": "场景、对象、材质结构返回",
+          "tokens": 5919374,
+          "percent_within_other_tool_text": 10.130102584125323
+        },
+        "errors": {
+          "label": "含明确报错的返回",
+          "tokens": 1838074,
+          "percent_within_other_tool_text": 3.1455823161728875
+        },
+        "docs": {
+          "label": "API/手册文档查询返回",
+          "tokens": 280727,
+          "percent_within_other_tool_text": 0.4804212925444058
+        },
+        "discovery_wrapper": {
+          "label": "工具发现/技能文档的伴随状态封装",
+          "tokens": 84812,
+          "percent_within_other_tool_text": 0.14514275671123955
+        },
+        "other": {
+          "label": "混合及其他返回",
+          "tokens": 57497,
+          "percent_within_other_tool_text": 0.09839731503355822
+        },
+        "shell": {
+          "label": "命令行、文件及脚本文本返回",
+          "tokens": 2880,
+          "percent_within_other_tool_text": 0.004928679188421095
+        }
+      }
+    }
+  },
+  "validation": {
+    "discovery_message_boundary_deltas": {
+      "0": 429
+    },
+    "model_weights_loaded": false,
+    "original_data_modified": false
+  },
+  "notes": [
+    "All training candidate histories weighted by actual sample occurrence, including over-budget samples, consistent with parent report.",
+    "Discovery tool names and JSON entries split by source character spans, tokenized using local 27B tokenizer. Truncated entries assigned through the next entry or fragment end; unparsed descriptions and format remain separate.",
+    "Ordinary output subcategories are rule-based at whole-message granularity, not a semantic relevance annotation. Messages can combine several tool results; a priority rule assigns one category.",
+    "Priority: discovery/skill wrapper; explicit errors; documentation query provenance; geometry fields; scene fields/provenance; shell without MCP; execution/wait feedback; residual.",
+    "Images excluded from ordinary tool text, exactly as in the parent report. Skill documents and dynamic discovery text also remain separate."
+  ],
+  "per_training_candidate": {
+    "denominator": 5583,
+    "mean_full_input_tokens": 55863.19201146337,
+    "discovery": [
+      {
+        "label": "API、手册检索接口说明",
+        "mean_tokens_per_training_candidate": 3015.413576929966,
+        "percent_of_full_input": 5.397854058019438
+      },
+      {
+        "label": "Blender Python 执行接口",
+        "mean_tokens_per_training_candidate": 2621.884649829841,
+        "percent_of_full_input": 4.693402856914833
+      },
+      {
+        "label": "场景、对象、文件查询接口",
+        "mean_tokens_per_training_candidate": 2315.587139530718,
+        "percent_of_full_input": 4.145103521931847
+      },
+      {
+        "label": "截图及只读参考视口接口",
+        "mean_tokens_per_training_candidate": 1228.3725595557944,
+        "percent_of_full_input": 2.1988943261669096
+      },
+      {
+        "label": "界面导航、渲染、缩略图接口",
+        "mean_tokens_per_training_candidate": 757.6209922980477,
+        "percent_of_full_input": 1.356207844590371
+      },
+      {
+        "label": "其他服务、未解析说明及格式",
+        "mean_tokens_per_training_candidate": 80.77377753895755,
+        "percent_of_full_input": 0.1445921269990845
+      }
+    ],
+    "ordinary": [
+      {
+        "label": "含几何、组件或数值测量的返回",
+        "mean_tokens_per_training_candidate": 6033.065914382948,
+        "percent_of_full_input": 10.799715693197296
+      },
+      {
+        "label": "其他执行返回（含未细分的自定义测量）",
+        "mean_tokens_per_training_candidate": 3664.863514239656,
+        "percent_of_full_input": 6.560426252562887
+      },
+      {
+        "label": "场景、对象、材质结构返回",
+        "mean_tokens_per_training_candidate": 1335.827870320616,
+        "percent_of_full_input": 2.391248731448247
+      },
+      {
+        "label": "含明确报错的返回",
+        "mean_tokens_per_training_candidate": 371.6535912591797,
+        "percent_of_full_input": 0.6652924365348022
+      },
+      {
+        "label": "API/手册文档查询返回",
+        "mean_tokens_per_training_candidate": 208.9133082572094,
+        "percent_of_full_input": 0.3739730952258143
+      },
+      {
+        "label": "其余返回及格式",
+        "mean_tokens_per_training_candidate": 84.6501880709296,
+        "percent_of_full_input": 0.15153124091720183
+      }
+    ]
+  }
+}

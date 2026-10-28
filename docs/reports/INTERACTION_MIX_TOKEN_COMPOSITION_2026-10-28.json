@@ -1,0 +1,1577 @@
+{
+  "config": "configs/sft_interaction_mix_27b_fsdp.yaml",
+  "config_sha256": "3e30391636b8e50b3c13ef40ea589c3d7808e77f92f08977c06a3a112bf7050a",
+  "model": "/home/ubuntu/models/Qwen3.8-27B",
+  "tokenizer_class": "Qwen2Tokenizer",
+  "chat_template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+  "source_files": 200,
+  "source_hashes_digest": "b4f7fef86d976c61f6abec6e8fe6121029ce1f467beaeda220b2e76508b50405",
+  "max_length": 49152,
+  "labels": {
+    "developer_prompt": "初始 developer 提示词",
+    "user_prompt": "用户任务、技能及环境提示",
+    "declared_tools": "初始工具声明",
+    "discovered_tools": "动态发现的工具说明",
+    "tool_skill_docs": "工具返回的技能文档",
+    "tool_other": "其他工具返回文本",
+    "tool_mixed_discovery": "无法可靠拆分的发现/执行混合返回",
+    "assistant_history_text": "历史 assistant 文字回复",
+    "assistant_history_calls": "历史 assistant 工具调用及代码",
+    "assistant_target_text": "当前目标：assistant 文字回复",
+    "assistant_target_calls": "当前目标：assistant 工具调用及代码",
+    "image_tokens": "图片 token",
+    "template_overhead": "公共模板格式"
+  },
+  "method": "Exact rendered Qwen 27B tokenizer offsets; original rendering recovered after diagnostic markers are removed; image pads expanded using configured Processor patches. Full-prefix records tokenized once; first/middle/last step per record independently retokenized.",
+  "notes": [
+    "Samples counted before length filtering; history repeated exactly as it occurs in each selected training example.",
+    "Dynamic discovery identified by ALL_TOOLS call provenance and returned MCP name/description spans; skill prefixes split where identifiable. Ambiguous mixed discovery/execution returns remain separate.",
+    "No semantic relevance judgment; other tool output is not equivalent to irrelevant output.",
+    "Message delimiters are attributed to their message; global template framing is separate. Current target includes the complete assistant message, not just supervised labels.",
+    "A token spanning two category boundaries is assigned by its starting character.",
+    "Refined classification moves separately printed skill documents after tool lists from discovered_tools to tool_skill_docs. Per-sample totals and all input/model data remain unchanged."
+  ],
+  "validation": {
+    "data_rejected": 0,
+    "records": 200,
+    "independent_prefix_tokenizations": 600,
+    "independent_full_processor_checks": 21,
+    "tokens_crossing_category_boundaries_unique_records": 5,
+    "compared_to_prior_9b_lengths": 6941,
+    "prior_9b_length_delta_min": 0,
+    "prior_9b_length_delta_max": 0,
+    "model_weights_loaded": false,
+    "independent_27b_report_total_tokens_match": true,
+    "refined_discovery_messages_retokenized": 429
+  },
+  "all": {
+    "samples": 6941,
+    "total_tokens": 383989608,
+    "mean_tokens": 55321.94323584498,
+    "median_tokens": 53404.0,
+    "max_tokens": 131343,
+    "over_48k": 4081,
+    "categories": {
+      "developer_prompt": {
+        "tokens": 41671570,
+        "percent": 10.852265043589409,
+        "mean": 6003.68390721798,
+        "median": 6004.0,
+        "max": 6014
+      },
+      "user_prompt": {
+        "tokens": 31785443,
+        "percent": 8.277683129383023,
+        "mean": 4579.375162080392,
+        "median": 4641.0,
+        "max": 4671
+      },
+      "declared_tools": {
+        "tokens": 66571131,
+        "percent": 17.33670120572638,
+        "mean": 9591.0,
+        "median": 9591.0,
+        "max": 9591
+      },
+      "discovered_tools": {
+        "tokens": 69973202,
+        "percent": 18.222681172142554,
+        "mean": 10081.141334101714,
+        "median": 8306.0,
+        "max": 29139
+      },
+      "tool_skill_docs": {
+        "tokens": 20257563,
+        "percent": 5.275549800816485,
+        "mean": 2918.5366661864286,
+        "median": 3090.0,
+        "max": 4215
+      },
+      "tool_other": {
+        "tokens": 77368087,
+        "percent": 20.14848459128092,
+        "mean": 11146.533208471401,
+        "median": 3964.0,
+        "max": 74710
+      },
+      "tool_mixed_discovery": {
+        "tokens": 756291,
+        "percent": 0.19695611137476407,
+        "mean": 108.9599481342746,
+        "median": 0.0,
+        "max": 4639
+      },
+      "assistant_history_text": {
+        "tokens": 1211862,
+        "percent": 0.3155976033601409,
+        "mean": 174.59472698458436,
+        "median": 162.0,
+        "max": 727
+      },
+      "assistant_history_calls": {
+        "tokens": 34783605,
+        "percent": 9.058475613746298,
+        "mean": 5011.324737069586,
+        "median": 4613.0,
+        "max": 19623
+      },
+      "assistant_target_text": {
+        "tokens": 111923,
+        "percent": 0.02914740338493744,
+        "mean": 16.12490995533785,
+        "median": 0.0,
+        "max": 311
+      },
+      "assistant_target_calls": {
+        "tokens": 2161691,
+        "percent": 0.5629555995692467,
+        "mean": 311.4379772367094,
+        "median": 224.0,
+        "max": 6130
+      },
+      "image_tokens": {
+        "tokens": 35858807,
+        "percent": 9.338483712298798,
+        "mean": 5166.23065840657,
+        "median": 4522.0,
+        "max": 30226
+      },
+      "template_overhead": {
+        "tokens": 1478433,
+        "percent": 0.3850190133270482,
+        "mean": 213.0,
+        "median": 213.0,
+        "max": 213
+      }
+    }
+  },
+  "by_split": {
+    "train": {
+      "samples": 5583,
+      "total_tokens": 311884201,
+      "mean_tokens": 55863.19201146337,
+      "median_tokens": 53524.0,
+      "max_tokens": 131343,
+      "over_48k": 3295,
+      "categories": {
+        "developer_prompt": {
+          "tokens": 33518876,
+          "percent": 10.747218324149738,
+          "mean": 6003.739208310944,
+          "median": 6004.0,
+          "max": 6014
+        },
+        "user_prompt": {
+          "tokens": 25565455,
+          "percent": 8.197098448087148,
+          "mean": 4579.1608454236075,
+          "median": 4636.0,
+          "max": 4671
+        },
+        "declared_tools": {
+          "tokens": 53546553,
+          "percent": 17.168728915511817,
+          "mean": 9591.0,
+          "median": 9591.0,
+          "max": 9591
+        },
+        "discovered_tools": {
+          "tokens": 55939721,
+          "percent": 17.936054734622484,
+          "mean": 10019.652695683324,
+          "median": 8306.0,
+          "max": 29139
+        },
+        "tool_skill_docs": {
+          "tokens": 16349118,
+          "percent": 5.2420475123714265,
+          "mean": 2928.375067168189,
+          "median": 3090.0,
+          "max": 4215
+        },
+        "tool_other": {
+          "tokens": 65315374,
+          "percent": 20.942187449886248,
+          "mean": 11698.974386530539,
+          "median": 3922.0,
+          "max": 74710
+        },
+        "tool_mixed_discovery": {
+          "tokens": 740491,
+          "percent": 0.23742497940766163,
+          "mean": 132.6331721296794,
+          "median": 0.0,
+          "max": 4639
+        },
+        "assistant_history_text": {
+          "tokens": 976708,
+          "percent": 0.3131636667931121,
+          "mean": 174.94322049077556,
+          "median": 163.0,
+          "max": 727
+        },
+        "assistant_history_calls": {
+          "tokens": 28272995,
+          "percent": 9.065221934726985,
+          "mean": 5064.12233566183,
+          "median": 4657.0,
+          "max": 19623
+        },
+        "assistant_target_text": {
+          "tokens": 89725,
+          "percent": 0.028768690338373377,
+          "mean": 16.071108722908832,
+          "median": 0.0,
+          "max": 311
+        },
+        "assistant_target_calls": {
+          "tokens": 1763307,
+          "percent": 0.5653723383057804,
+          "mean": 315.83503492745837,
+          "median": 227.0,
+          "max": 6130
+        },
+        "image_tokens": {
+          "tokens": 28616699,
+          "percent": 9.175424374894835,
+          "mean": 5125.684936414114,
+          "median": 4320.0,
+          "max": 30226
+        },
+        "template_overhead": {
+          "tokens": 1189179,
+          "percent": 0.38128863090439136,
+          "mean": 213.0,
+          "median": 213.0,
+          "max": 213
+        }
+      }
+    },
+    "validation": {
+      "samples": 588,
+      "total_tokens": 30126280,
+      "mean_tokens": 51235.17006802721,
+      "median_tokens": 51633.0,
+      "max_tokens": 95711,
+      "over_48k": 333,
+      "categories": {
+        "developer_prompt": {
+          "tokens": 3529986,
+          "percent": 11.717297987006694,
+          "mean": 6003.377551020408,
+          "median": 6002.0,
+          "max": 6012
+        },
+        "user_prompt": {
+          "tokens": 2691759,
+          "percent": 8.934919943650527,
+          "mean": 4577.821428571428,
+          "median": 4583.5,
+          "max": 4666
+        },
+        "declared_tools": {
+          "tokens": 5639508,
+          "percent": 18.71956311897785,
+          "mean": 9591.0,
+          "median": 9591.0,
+          "max": 9591
+        },
+        "discovered_tools": {
+          "tokens": 6413953,
+          "percent": 21.290225676718133,
+          "mean": 10908.083333333334,
+          "median": 8414.0,
+          "max": 28936
+        },
+        "tool_skill_docs": {
+          "tokens": 1671359,
+          "percent": 5.547843942232496,
+          "mean": 2842.447278911565,
+          "median": 2996.0,
+          "max": 4150
+        },
+        "tool_other": {
+          "tokens": 4526968,
+          "percent": 15.026641191677166,
+          "mean": 7698.925170068027,
+          "median": 3792.0,
+          "max": 42911
+        },
+        "tool_mixed_discovery": {
+          "tokens": 15800,
+          "percent": 0.05244590437319178,
+          "mean": 26.87074829931973,
+          "median": 0.0,
+          "max": 632
+        },
+        "assistant_history_text": {
+          "tokens": 86564,
+          "percent": 0.2873371687443654,
+          "mean": 147.21768707482994,
+          "median": 150.0,
+          "max": 385
+        },
+        "assistant_history_calls": {
+          "tokens": 2317172,
+          "percent": 7.691530451154275,
+          "mean": 3940.7687074829932,
+          "median": 3741.0,
+          "max": 12094
+        },
+        "assistant_target_text": {
+          "tokens": 10352,
+          "percent": 0.034362025447549446,
+          "mean": 17.60544217687075,
+          "median": 0.0,
+          "max": 273
+        },
+        "assistant_target_calls": {
+          "tokens": 175631,
+          "percent": 0.5829826981625345,
+          "mean": 298.6921768707483,
+          "median": 226.0,
+          "max": 2241
+        },
+        "image_tokens": {
+          "tokens": 2921984,
+          "percent": 9.69911983822762,
+          "mean": 4969.360544217687,
+          "median": 4560.0,
+          "max": 17850
+        },
+        "template_overhead": {
+          "tokens": 125244,
+          "percent": 0.4157300536275969,
+          "mean": 213.0,
+          "median": 213.0,
+          "max": 213
+        }
+      }
+    },
+    "test": {
+      "samples": 770,
+      "total_tokens": 41979127,
+      "mean_tokens": 54518.346753246755,
+      "median_tokens": 53779.5,
+      "max_tokens": 100721,
+      "over_48k": 453,
+      "categories": {
+        "developer_prompt": {
+          "tokens": 4622708,
+          "percent": 11.011920281238817,
+          "mean": 6003.516883116883,
+          "median": 6002.0,
+          "max": 6012
+        },
+        "user_prompt": {
+          "tokens": 3528229,
+          "percent": 8.404722184908705,
+          "mean": 4582.115584415585,
+          "median": 4641.0,
+          "max": 4666
+        },
+        "declared_tools": {
+          "tokens": 7385070,
+          "percent": 17.592242925871233,
+          "mean": 9591.0,
+          "median": 9591.0,
+          "max": 9591
+        },
+        "discovered_tools": {
+          "tokens": 7619528,
+          "percent": 18.150753825823962,
+          "mean": 9895.49090909091,
+          "median": 8447.0,
+          "max": 19969
+        },
+        "tool_skill_docs": {
+          "tokens": 2237086,
+          "percent": 5.329043645905261,
+          "mean": 2905.3064935064936,
+          "median": 2996.0,
+          "max": 3979
+        },
+        "tool_other": {
+          "tokens": 7525745,
+          "percent": 17.92734994227012,
+          "mean": 9773.694805194806,
+          "median": 4561.5,
+          "max": 47803
+        },
+        "tool_mixed_discovery": {
+          "tokens": 0,
+          "percent": 0.0,
+          "mean": 0.0,
+          "median": 0.0,
+          "max": 0
+        },
+        "assistant_history_text": {
+          "tokens": 148590,
+          "percent": 0.35396162478557497,
+          "mean": 192.97402597402598,
+          "median": 184.0,
+          "max": 540
+        },
+        "assistant_history_calls": {
+          "tokens": 4193438,
+          "percent": 9.989340654940252,
+          "mean": 5446.023376623377,
+          "median": 5186.0,
+          "max": 19346
+        },
+        "assistant_target_text": {
+          "tokens": 11846,
+          "percent": 0.028218785969512897,
+          "mean": 15.384415584415585,
+          "median": 0.0,
+          "max": 299
+        },
+        "assistant_target_calls": {
+          "tokens": 222753,
+          "percent": 0.5306279951938973,
+          "mean": 289.2896103896104,
+          "median": 199.5,
+          "max": 3058
+        },
+        "image_tokens": {
+          "tokens": 4320124,
+          "percent": 10.291123967394558,
+          "mean": 5610.550649350649,
+          "median": 5236.0,
+          "max": 22134
+        },
+        "template_overhead": {
+          "tokens": 164010,
+          "percent": 0.39069416569810994,
+          "mean": 213.0,
+          "median": 213.0,
+          "max": 213
+        }
+      }
+    }
+  },
+  "by_scene": {
+    "ActiveVisual": {
+      "samples": 3505,
+      "total_tokens": 172878281,
+      "mean_tokens": 49323.33266761769,
+      "median_tokens": 48943.0,
+      "max_tokens": 89340,
+      "over_48k": 1735,
+      "categories": {
+        "developer_prompt": {
+          "tokens": 21036274,
+          "percent": 12.168257272294372,
+          "mean": 6001.790014265335,
+          "median": 6002.0,
+          "max": 6010
+        },
+        "user_prompt": {
+          "tokens": 16299915,
+          "percent": 9.428549905583571,
+          "mean": 4650.4750356633385,
+          "median": 4651.0,
+          "max": 4671
+        },
+        "declared_tools": {
+          "tokens": 33616455,
+          "percent": 19.445158064707968,
+          "mean": 9591.0,
+          "median": 9591.0,
+          "max": 9591
+        },
+        "discovered_tools": {
+          "tokens": 43184447,
+          "percent": 24.979683248932815,
+          "mean": 12320.812268188303,
+          "median": 11509.0,
+          "max": 29139
+        },
+        "tool_skill_docs": {
+          "tokens": 10182745,
+          "percent": 5.890123930605256,
+          "mean": 2905.2054208273894,
+          "median": 3089.0,
+          "max": 4215
+        },
+        "tool_other": {
+          "tokens": 8783881,
+          "percent": 5.080962715033012,
+          "mean": 2506.1001426533526,
+          "median": 1971.0,
+          "max": 11089
+        },
+        "tool_mixed_discovery": {
+          "tokens": 716185,
+          "percent": 0.4142712409316472,
+          "mean": 204.33238231098431,
+          "median": 0.0,
+          "max": 4639
+        },
+        "assistant_history_text": {
+          "tokens": 595647,
+          "percent": 0.3445470400067201,
+          "mean": 169.94208273894438,
+          "median": 158.0,
+          "max": 552
+        },
+        "assistant_history_calls": {
+          "tokens": 15902682,
+          "percent": 9.198773789288198,
+          "mean": 4537.141797432239,
+          "median": 4052.0,
+          "max": 19620
+        },
+        "assistant_target_text": {
+          "tokens": 56971,
+          "percent": 0.032954399864723316,
+          "mean": 16.254208273894438,
+          "median": 0.0,
+          "max": 311
+        },
+        "assistant_target_calls": {
+          "tokens": 1021358,
+          "percent": 0.5907960179219968,
+          "mean": 291.4002853067047,
+          "median": 192.0,
+          "max": 6130
+        },
+        "image_tokens": {
+          "tokens": 20735156,
+          "percent": 11.994078076239084,
+          "mean": 5915.879029957204,
+          "median": 4522.0,
+          "max": 30226
+        },
+        "template_overhead": {
+          "tokens": 746565,
+          "percent": 0.4318442985906367,
+          "mean": 213.0,
+          "median": 213.0,
+          "max": 213
+        }
+      }
+    },
+    "Full3DInteraction": {
+      "samples": 3436,
+      "total_tokens": 211111327,
+      "mean_tokens": 61441.014842840515,
+      "median_tokens": 61510.0,
+      "max_tokens": 131343,
+      "over_48k": 2346,
+      "categories": {
+        "developer_prompt": {
+          "tokens": 20635296,
+          "percent": 9.774603898918224,
+          "mean": 6005.6158323632135,
+          "median": 6006.0,
+          "max": 6014
+        },
+        "user_prompt": {
+          "tokens": 15485528,
+          "percent": 7.335242604012432,
+          "mean": 4506.84749708964,
+          "median": 4508.0,
+          "max": 4532
+        },
+        "declared_tools": {
+          "tokens": 32954676,
+          "percent": 15.610093720835737,
+          "mean": 9591.0,
+          "median": 9591.0,
+          "max": 9591
+        },
+        "discovered_tools": {
+          "tokens": 26788755,
+          "percent": 12.689397286579512,
+          "mean": 7796.494470314319,
+          "median": 8192.0,
+          "max": 17394
+        },
+        "tool_skill_docs": {
+          "tokens": 10074818,
+          "percent": 4.7722773302448145,
+          "mean": 2932.1356228172294,
+          "median": 3149.0,
+          "max": 4211
+        },
+        "tool_other": {
+          "tokens": 68584206,
+          "percent": 32.48722225122482,
+          "mean": 19960.47904540163,
+          "median": 16546.0,
+          "max": 74710
+        },
+        "tool_mixed_discovery": {
+          "tokens": 40106,
+          "percent": 0.01899755951986413,
+          "mean": 11.672293364377182,
+          "median": 0.0,
+          "max": 1823
+        },
+        "assistant_history_text": {
+          "tokens": 616215,
+          "percent": 0.2918910172925018,
+          "mean": 179.3408032596042,
+          "median": 170.0,
+          "max": 727
+        },
+        "assistant_history_calls": {
+          "tokens": 18880923,
+          "percent": 8.943585959269727,
+          "mean": 5495.029976717113,
+          "median": 5293.5,
+          "max": 19623
+        },
+        "assistant_target_text": {
+          "tokens": 54952,
+          "percent": 0.026029868117876973,
+          "mean": 15.9930151338766,
+          "median": 0.0,
+          "max": 253
+        },
+        "assistant_target_calls": {
+          "tokens": 1140333,
+          "percent": 0.5401571844603108,
+          "mean": 331.878055878929,
+          "median": 256.0,
+          "max": 5457
+        },
+        "image_tokens": {
+          "tokens": 15123651,
+          "percent": 7.163827358254443,
+          "mean": 4401.528230500582,
+          "median": 4320.0,
+          "max": 16560
+        },
+        "template_overhead": {
+          "tokens": 731868,
+          "percent": 0.34667396126973327,
+          "mean": 213.0,
+          "median": 213.0,
+          "max": 213
+        }
+      }
+    }
+  },
+  "train_over_48k": {
+    "samples": 3295,
+    "total_tokens": 227220460,
+    "mean_tokens": 68959.1684370258,
+    "median_tokens": 65055.0,
+    "max_tokens": 131343,
+    "over_48k": 3295,
+    "categories": {
+      "developer_prompt": {
+        "tokens": 19783740,
+        "percent": 8.706847966067844,
+        "mean": 6004.16995447648,
+        "median": 6004.0,
+        "max": 6014
+      },
+      "user_prompt": {
+        "tokens": 15049342,
+        "percent": 6.6232336647852925,
+        "mean": 4567.326858877086,
+        "median": 4520.0,
+        "max": 4671
+      },
+      "declared_tools": {
+        "tokens": 31602345,
+        "percent": 13.908230359185083,
+        "mean": 9591.0,
+        "median": 9591.0,
+        "max": 9591
+      },
+      "discovered_tools": {
+        "tokens": 35776260,
+        "percent": 15.745175412460656,
+        "mean": 10857.742033383915,
+        "median": 8306.0,
+        "max": 29139
+      },
+      "tool_skill_docs": {
+        "tokens": 10334059,
+        "percent": 4.548031898183817,
+        "mean": 3136.2849772382397,
+        "median": 3091.0,
+        "max": 4215
+      },
+      "tool_other": {
+        "tokens": 61295942,
+        "percent": 26.976418408799983,
+        "mean": 18602.713808801214,
+        "median": 12684.0,
+        "max": 74710
+      },
+      "tool_mixed_discovery": {
+        "tokens": 475471,
+        "percent": 0.20925536371152492,
+        "mean": 144.30075872534144,
+        "median": 0.0,
+        "max": 4639
+      },
+      "assistant_history_text": {
+        "tokens": 797180,
+        "percent": 0.35083988475333605,
+        "mean": 241.93626707132017,
+        "median": 231.0,
+        "max": 727
+      },
+      "assistant_history_calls": {
+        "tokens": 25120633,
+        "percent": 11.05562104750602,
+        "mean": 7623.864339908953,
+        "median": 7397.0,
+        "max": 19623
+      },
+      "assistant_target_text": {
+        "tokens": 67855,
+        "percent": 0.029863067788877814,
+        "mean": 20.593323216995447,
+        "median": 0.0,
+        "max": 311
+      },
+      "assistant_target_calls": {
+        "tokens": 1209745,
+        "percent": 0.5324102415777171,
+        "mean": 367.14567526555385,
+        "median": 279.0,
+        "max": 5457
+      },
+      "image_tokens": {
+        "tokens": 25006053,
+        "percent": 11.005194250552965,
+        "mean": 7589.090440060698,
+        "median": 6902.0,
+        "max": 30226
+      },
+      "template_overhead": {
+        "tokens": 701835,
+        "percent": 0.30887843462688175,
+        "mean": 213.0,
+        "median": 213.0,
+        "max": 213
+      }
+    }
+  },
+  "train_within_48k": {
+    "samples": 2288,
+    "total_tokens": 84663741,
+    "mean_tokens": 37003.383304195806,
+    "median_tokens": 38156.0,
+    "max_tokens": 49147,
+    "over_48k": 0,
+    "categories": {
+      "developer_prompt": {
+        "tokens": 13735136,
+        "percent": 16.22316216808799,
+        "mean": 6003.118881118881,
+        "median": 6002.0,
+        "max": 6014
+      },
+      "user_prompt": {
+        "tokens": 10516113,
+        "percent": 12.42103511584729,
+        "mean": 4596.203234265734,
+        "median": 4646.0,
+        "max": 4671
+      },
+      "declared_tools": {
+        "tokens": 21944208,
+        "percent": 25.919251548310392,
+        "mean": 9591.0,
+        "median": 9591.0,
+        "max": 9591
+      },
+      "discovered_tools": {
+        "tokens": 20163461,
+        "percent": 23.81593437974823,
+        "mean": 8812.701486013986,
+        "median": 8359.0,
+        "max": 24817
+      },
+      "tool_skill_docs": {
+        "tokens": 6015059,
+        "percent": 7.104645895578841,
+        "mean": 2628.959353146853,
+        "median": 3088.0,
+        "max": 4215
+      },
+      "tool_other": {
+        "tokens": 4019432,
+        "percent": 4.7475246811973495,
+        "mean": 1756.7447552447552,
+        "median": 911.0,
+        "max": 15224
+      },
+      "tool_mixed_discovery": {
+        "tokens": 265020,
+        "percent": 0.31302656470141094,
+        "mean": 115.83041958041959,
+        "median": 0.0,
+        "max": 4639
+      },
+      "assistant_history_text": {
+        "tokens": 179528,
+        "percent": 0.2120482722349819,
+        "mean": 78.46503496503496,
+        "median": 50.0,
+        "max": 260
+      },
+      "assistant_history_calls": {
+        "tokens": 3152362,
+        "percent": 3.723390866935587,
+        "mean": 1377.7805944055945,
+        "median": 992.0,
+        "max": 8665
+      },
+      "assistant_target_text": {
+        "tokens": 21870,
+        "percent": 0.025831601275450373,
+        "mean": 9.558566433566433,
+        "median": 0.0,
+        "max": 85
+      },
+      "assistant_target_calls": {
+        "tokens": 553562,
+        "percent": 0.6538359792062578,
+        "mean": 241.94143356643357,
+        "median": 148.0,
+        "max": 6130
+      },
+      "image_tokens": {
+        "tokens": 3610646,
+        "percent": 4.264689886547773,
+        "mean": 1578.0795454545455,
+        "median": 714.0,
+        "max": 8330
+      },
+      "template_overhead": {
+        "tokens": 487344,
+        "percent": 0.5756230403284447,
+        "mean": 213.0,
+        "median": 213.0,
+        "max": 213
+      }
+    }
+  },
+  "longest_samples": [
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_121",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 121,
+      "tokens": 131343,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 74710,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 464,
+      "assistant_history_calls": 16191,
+      "assistant_target_text": 214,
+      "assistant_target_calls": 0,
+      "image_tokens": 8160,
+      "template_overhead": 213
+    },
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_119",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 119,
+      "tokens": 130898,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 74479,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 464,
+      "assistant_history_calls": 15935,
+      "assistant_target_text": 0,
+      "assistant_target_calls": 256,
+      "image_tokens": 8160,
+      "template_overhead": 213
+    },
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_118",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 118,
+      "tokens": 130642,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 74479,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 395,
+      "assistant_history_calls": 15935,
+      "assistant_target_text": 69,
+      "assistant_target_calls": 0,
+      "image_tokens": 8160,
+      "template_overhead": 213
+    },
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_116",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 116,
+      "tokens": 130176,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 74082,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 395,
+      "assistant_history_calls": 15867,
+      "assistant_target_text": 0,
+      "assistant_target_calls": 68,
+      "image_tokens": 8160,
+      "template_overhead": 213
+    },
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_114",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 114,
+      "tokens": 129791,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 74005,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 395,
+      "assistant_history_calls": 15272,
+      "assistant_target_text": 0,
+      "assistant_target_calls": 595,
+      "image_tokens": 7920,
+      "template_overhead": 213
+    },
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_112",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 112,
+      "tokens": 128931,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 73980,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 395,
+      "assistant_history_calls": 15204,
+      "assistant_target_text": 0,
+      "assistant_target_calls": 68,
+      "image_tokens": 7680,
+      "template_overhead": 213
+    },
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_110",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 110,
+      "tokens": 128736,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 73853,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 395,
+      "assistant_history_calls": 14762,
+      "assistant_target_text": 0,
+      "assistant_target_calls": 442,
+      "image_tokens": 7680,
+      "template_overhead": 213
+    },
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_108",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 108,
+      "tokens": 128029,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 73828,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 395,
+      "assistant_history_calls": 14694,
+      "assistant_target_text": 0,
+      "assistant_target_calls": 68,
+      "image_tokens": 7440,
+      "template_overhead": 213
+    },
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_106",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 106,
+      "tokens": 127933,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 73800,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 395,
+      "assistant_history_calls": 14626,
+      "assistant_target_text": 0,
+      "assistant_target_calls": 68,
+      "image_tokens": 7440,
+      "template_overhead": 213
+    },
+    {
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_104",
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "instance": "FernFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 104,
+      "tokens": 127732,
+      "over_48k": true,
+      "developer_prompt": 6002,
+      "user_prompt": 4496,
+      "declared_tools": 9591,
+      "discovered_tools": 8306,
+      "tool_skill_docs": 2996,
+      "tool_other": 73667,
+      "tool_mixed_discovery": 0,
+      "assistant_history_text": 395,
+      "assistant_history_calls": 14045,
+      "assistant_target_text": 0,
+      "assistant_target_calls": 581,
+      "image_tokens": 7440,
+      "template_overhead": 213
+    }
+  ],
+  "largest_tool_messages": [
+    {
+      "scene": "Full3DInteraction",
+      "instance": "SimpleBookcaseFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/SimpleBookcaseFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "17",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "29549",
+      "sample_occurrences": "21",
+      "weighted_tokens": "620529"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "WallShelfFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/WallShelfFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "17",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "29207",
+      "sample_occurrences": "22",
+      "weighted_tokens": "642554"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "BirdFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/BirdFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "26",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "28939",
+      "sample_occurrences": "40",
+      "weighted_tokens": "1157560"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "PanelDoorFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/PanelDoorFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "17",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "28934",
+      "sample_occurrences": "35",
+      "weighted_tokens": "1012690"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "FlowerPlantFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FlowerPlantFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "21",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "28784",
+      "sample_occurrences": "35",
+      "weighted_tokens": "1007440"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "WheatEarMonocotFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/WheatEarMonocotFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "26",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "28541",
+      "sample_occurrences": "22",
+      "weighted_tokens": "627902"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "SucculentFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/SucculentFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "21",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "28273",
+      "sample_occurrences": "33",
+      "weighted_tokens": "933009"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "SpatulaOnHookBaseFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/SpatulaOnHookBaseFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "19",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "27606",
+      "sample_occurrences": "31",
+      "weighted_tokens": "855786"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "RangeHoodFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/RangeHoodFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "19",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "26071",
+      "sample_occurrences": "24",
+      "weighted_tokens": "625704"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "CrustaceanFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/CrustaceanFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "26",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "23943",
+      "sample_occurrences": "31",
+      "weighted_tokens": "742233"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "VeratrumEarMonocotFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/VeratrumEarMonocotFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "24",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "23873",
+      "sample_occurrences": "27",
+      "weighted_tokens": "644571"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "SideTableFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/SideTableFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "19",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "23839",
+      "sample_occurrences": "32",
+      "weighted_tokens": "762848"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "KitchenIslandFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/KitchenIslandFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "21",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "23500",
+      "sample_occurrences": "31",
+      "weighted_tokens": "728500"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "KitchenSpaceFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/KitchenSpaceFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "19",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "23312",
+      "sample_occurrences": "39",
+      "weighted_tokens": "909168"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "KitchenCabinetFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/KitchenCabinetFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "19",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "23098",
+      "sample_occurrences": "27",
+      "weighted_tokens": "623646"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "MicrowaveFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/MicrowaveFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "19",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "22312",
+      "sample_occurrences": "28",
+      "weighted_tokens": "624736"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "RackFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/RackFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "19",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "22081",
+      "sample_occurrences": "38",
+      "weighted_tokens": "839078"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "DishwasherFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/DishwasherFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "28",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "21694",
+      "sample_occurrences": "20",
+      "weighted_tokens": "433880"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "WheatMonocotFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/WheatMonocotFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "19",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "21151",
+      "sample_occurrences": "24",
+      "weighted_tokens": "507624"
+    },
+    {
+      "scene": "Full3DInteraction",
+      "instance": "FruitPineappleFactory",
+      "path": "3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FruitPineappleFactory/post_train_trajectory/trajectory.jsonl",
+      "line": "1",
+      "message_index": "30",
+      "role": "tool",
+      "category": "tool_other",
+      "tokens": "20945",
+      "sample_occurrences": "28",
+      "weighted_tokens": "586460"
+    }
+  ],
+  "elapsed_seconds": 38.18,
+  "grouped_train": {
+    "初始提示词（developer、用户任务/技能/环境）": {
+      "tokens": 59084331,
+      "percent": 18.94431677223689,
+      "mean": 10582.900053734553
+    },
+    "初始工具声明": {
+      "tokens": 53546553,
+      "percent": 17.168728915511817,
+      "mean": 9591.0
+    },
+    "动态发现的工具说明": {
+      "tokens": 55939721,
+      "percent": 17.936054734622484,
+      "mean": 10019.652695683324
+    },
+    "工具返回的技能文档": {
+      "tokens": 16349118,
+      "percent": 5.2420475123714265,
+      "mean": 2928.375067168189
+    },
+    "其他工具返回文本": {
+      "tokens": 65315374,
+      "percent": 20.942187449886248,
+      "mean": 11698.974386530539
+    },
+    "历史 assistant 回复（含调用代码）": {
+      "tokens": 29249703,
+      "percent": 9.378385601520097,
+      "mean": 5239.0655561526055
+    },
+    "当前 assistant 目标（含调用代码）": {
+      "tokens": 1853032,
+      "percent": 0.5941410286441537,
+      "mean": 331.9061436503672
+    },
+    "图片 token": {
+      "tokens": 28616699,
+      "percent": 9.175424374894835,
+      "mean": 5125.684936414114
+    },
+    "混合返回与公共模板格式": {
+      "tokens": 1929670,
+      "percent": 0.618713610312053,
+      "mean": 345.6331721296794
+    }
+  },
+  "grouped_train_over_48k": {
+    "初始提示词（developer、用户任务/技能/环境）": {
+      "tokens": 34833082,
+      "percent": 15.330081630853137,
+      "mean": 10571.496813353566
+    },
+    "初始工具声明": {
+      "tokens": 31602345,
+      "percent": 13.908230359185083,
+      "mean": 9591.0
+    },
+    "动态发现的工具说明": {
+      "tokens": 35776260,
+      "percent": 15.745175412460656,
+      "mean": 10857.742033383915
+    },
+    "工具返回的技能文档": {
+      "tokens": 10334059,
+      "percent": 4.548031898183817,
+      "mean": 3136.2849772382397
+    },
+    "其他工具返回文本": {
+      "tokens": 61295942,
+      "percent": 26.976418408799983,
+      "mean": 18602.713808801214
+    },
+    "历史 assistant 回复（含调用代码）": {
+      "tokens": 25917813,
+      "percent": 11.406460932259357,
+      "mean": 7865.800606980273
+    },
+    "当前 assistant 目标（含调用代码）": {
+      "tokens": 1277600,
+      "percent": 0.5622733093665949,
+      "mean": 387.7389984825493
+    },
+    "图片 token": {
+      "tokens": 25006053,
+      "percent": 11.005194250552965,
+      "mean": 7589.090440060698
+    },
+    "混合返回与公共模板格式": {
+      "tokens": 1177306,
+      "percent": 0.5181337983384067,
+      "mean": 357.30075872534144
+    }
+  },
+  "grouped_train_within_48k": {
+    "初始提示词（developer、用户任务/技能/环境）": {
+      "tokens": 24251249,
+      "percent": 28.644197283935277,
+      "mean": 10599.322115384615
+    },
+    "初始工具声明": {
+      "tokens": 21944208,
+      "percent": 25.919251548310392,
+      "mean": 9591.0
+    },
+    "动态发现的工具说明": {
+      "tokens": 20163461,
+      "percent": 23.81593437974823,
+      "mean": 8812.701486013986
+    },
+    "工具返回的技能文档": {
+      "tokens": 6015059,
+      "percent": 7.104645895578841,
+      "mean": 2628.959353146853
+    },
+    "其他工具返回文本": {
+      "tokens": 4019432,
+      "percent": 4.7475246811973495,
+      "mean": 1756.7447552447552
+    },
+    "历史 assistant 回复（含调用代码）": {
+      "tokens": 3331890,
+      "percent": 3.935439139170569,
+      "mean": 1456.2456293706293
+    },
+    "当前 assistant 目标（含调用代码）": {
+      "tokens": 575432,
+      "percent": 0.6796675804817082,
+      "mean": 251.5
+    },
+    "图片 token": {
+      "tokens": 3610646,
+      "percent": 4.264689886547773,
+      "mean": 1578.0795454545455
+    },
+    "混合返回与公共模板格式": {
+      "tokens": 752364,
+      "percent": 0.8886496050298556,
+      "mean": 328.8304195804196
+    }
+  },
+  "by_train_scene": {
+    "ActiveVisual": {
+      "samples": 2806,
+      "mean_tokens": 49223.58624376336,
+      "groups": {
+        "初始提示词（developer、用户任务/技能/环境）": {
+          "mean": 10652.433713471133,
+          "percent": 21.64091348549558
+        },
+        "初始工具声明": {
+          "mean": 9591.0,
+          "percent": 19.484561633733424
+        },
+        "动态发现的工具说明": {
+          "mean": 12194.912330719886,
+          "percent": 24.77453038534953
+        },
+        "工具返回的技能文档": {
+          "mean": 2914.253385602281,
+          "percent": 5.920441008037112
+        },
+        "其他工具返回文本": {
+          "mean": 2452.554882394868,
+          "percent": 4.982479070601255
+        },
+        "历史 assistant 回复（含调用代码）": {
+          "mean": 4750.417676407697,
+          "percent": 9.650693984145814
+        },
+        "当前 assistant 目标（含调用代码）": {
+          "mean": 312.52209550962226,
+          "percent": 0.6349031416808214
+        },
+        "图片 token": {
+          "mean": 5892.889522451889,
+          "percent": 11.97167856334019
+        },
+        "混合返回与公共模板格式": {
+          "mean": 462.60263720598715,
+          "percent": 0.9397987276162736
+        }
+      }
+    },
+    "Full3DInteraction": {
+      "samples": 2777,
+      "mean_tokens": 62572.13467770976,
+      "groups": {
+        "初始提示词（developer、用户任务/技能/环境）": {
+          "mean": 10512.640259272597,
+          "percent": 16.80083365130508
+        },
+        "初始工具声明": {
+          "mean": 9591.0,
+          "percent": 15.32790921933598
+        },
+        "动态发现的工具说明": {
+          "mean": 7821.676989557076,
+          "percent": 12.500255952340735
+        },
+        "工具返回的技能文档": {
+          "mean": 2942.644220381707,
+          "percent": 4.702802989762747
+        },
+        "其他工具返回文本": {
+          "mean": 21041.953546993158,
+          "percent": 33.628313394410995
+        },
+        "历史 assistant 回复（含调用代码）": {
+          "mean": 5732.816348577601,
+          "percent": 9.16193186968227
+        },
+        "当前 assistant 目标（含调用代码）": {
+          "mean": 351.4926179330212,
+          "percent": 0.5617398539197264
+        },
+        "图片 token": {
+          "mean": 4350.468491177529,
+          "percent": 6.952725064576243
+        },
+        "混合返回与公共模板格式": {
+          "mean": 227.4422038170688,
+          "percent": 0.36348800466622266
+        }
+      }
+    }
+  },
+  "classification_revision": {
+    "reason": "Skill files printed after tool listings were included in the prior coarse discovery category; now assigned to tool_skill_docs.",
+    "all_samples_tokens_moved": 6993899,
+    "train_tokens_moved": 6031134,
+    "unique_affected_messages": 71
+  }
+}

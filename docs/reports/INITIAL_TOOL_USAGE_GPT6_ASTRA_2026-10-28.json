@@ -1,0 +1,196 @@
+{
+  "scope": {
+    "Single-view": {
+      "files": 100,
+      "records": 401
+    },
+    "Multi-view": {
+      "files": 100,
+      "records": 404
+    },
+    "ActiveVisual": {
+      "files": 100,
+      "records": 100
+    },
+    "Full3DInteraction": {
+      "files": 100,
+      "records": 100
+    }
+  },
+  "selection": "3DHarnessBench/runs/<setting>/gpt-6-astra/<instance>/post_train_trajectory/trajectory.jsonl only",
+  "selected_files": 400,
+  "interaction_declarations": 200,
+  "unique_declarations": 1,
+  "direct_call_count": {
+    "exec": 5369,
+    "sleep": 3,
+    "wait": 192
+  },
+  "initial_declaration_tokens": 9591,
+  "top_level_definitions": [
+    {
+      "name": "exec",
+      "tokens": 6947,
+      "direct_calls": 5369
+    },
+    {
+      "name": "wait",
+      "tokens": 367,
+      "direct_calls": 192
+    },
+    {
+      "name": "request_user_input",
+      "tokens": 357,
+      "direct_calls": 0
+    },
+    {
+      "name": "request_user_input_async",
+      "tokens": 342,
+      "direct_calls": 0
+    },
+    {
+      "name": "sleep",
+      "tokens": 127,
+      "direct_calls": 3
+    },
+    {
+      "name": "followup_task",
+      "tokens": 173,
+      "direct_calls": 0
+    },
+    {
+      "name": "interrupt_agent",
+      "tokens": 118,
+      "direct_calls": 0
+    },
+    {
+      "name": "list_agents",
+      "tokens": 106,
+      "direct_calls": 0
+    },
+    {
+      "name": "send_message",
+      "tokens": 142,
+      "direct_calls": 0
+    },
+    {
+      "name": "spawn_agent",
+      "tokens": 735,
+      "direct_calls": 0
+    },
+    {
+      "name": "wait_agent",
+      "tokens": 177,
+      "direct_calls": 0
+    }
+  ],
+  "exec_description_embedded_sections": [
+    {
+      "name": "apply_patch",
+      "tokens": 67,
+      "literal_call_sites": 3,
+      "sessions_with_literal_calls": 2,
+      "assistant_call_messages_mentioning_name": 3
+    },
+    {
+      "name": "create_goal",
+      "tokens": 154,
+      "literal_call_sites": 0,
+      "sessions_with_literal_calls": 0,
+      "assistant_call_messages_mentioning_name": 0
+    },
+    {
+      "name": "exec_command",
+      "tokens": 480,
+      "literal_call_sites": 432,
+      "sessions_with_literal_calls": 200,
+      "assistant_call_messages_mentioning_name": 426
+    },
+    {
+      "name": "get_goal",
+      "tokens": 63,
+      "literal_call_sites": 0,
+      "sessions_with_literal_calls": 0,
+      "assistant_call_messages_mentioning_name": 0
+    },
+    {
+      "name": "list_mcp_resource_templates",
+      "tokens": 146,
+      "literal_call_sites": 0,
+      "sessions_with_literal_calls": 0,
+      "assistant_call_messages_mentioning_name": 0
+    },
+    {
+      "name": "list_mcp_resources",
+      "tokens": 134,
+      "literal_call_sites": 0,
+      "sessions_with_literal_calls": 0,
+      "assistant_call_messages_mentioning_name": 0
+    },
+    {
+      "name": "read_mcp_resource",
+      "tokens": 118,
+      "literal_call_sites": 0,
+      "sessions_with_literal_calls": 0,
+      "assistant_call_messages_mentioning_name": 0
+    },
+    {
+      "name": "update_goal",
+      "tokens": 395,
+      "literal_call_sites": 0,
+      "sessions_with_literal_calls": 0,
+      "assistant_call_messages_mentioning_name": 0
+    },
+    {
+      "name": "view_image",
+      "tokens": 173,
+      "literal_call_sites": 16,
+      "sessions_with_literal_calls": 2,
+      "assistant_call_messages_mentioning_name": 16
+    },
+    {
+      "name": "write_stdin",
+      "tokens": 324,
+      "literal_call_sites": 5,
+      "sessions_with_literal_calls": 1,
+      "assistant_call_messages_mentioning_name": 5
+    },
+    {
+      "name": "clock__curr_time",
+      "tokens": 90,
+      "literal_call_sites": 1,
+      "sessions_with_literal_calls": 1,
+      "assistant_call_messages_mentioning_name": 1
+    },
+    {
+      "name": "image_gen__imagegen",
+      "tokens": 455,
+      "literal_call_sites": 0,
+      "sessions_with_literal_calls": 0,
+      "assistant_call_messages_mentioning_name": 0
+    },
+    {
+      "name": "web__run",
+      "tokens": 2787,
+      "literal_call_sites": 0,
+      "sessions_with_literal_calls": 0,
+      "assistant_call_messages_mentioning_name": 0
+    }
+  ],
+  "remaining_exec_definition_tokens": {
+    "top:exec": 54,
+    "exec_core": 1399,
+    "exec_mapping_metadata": 108
+  },
+  "unused_top_level_tokens": 2150,
+  "unreferenced_embedded_section_tokens": 4252,
+  "combined_unused_section_tokens": 6402,
+  "combined_unused_percent_of_initial_declarations": 66.75007819831092,
+  "notes": [
+    "Top-level direct counts are archived assistant tool calls. Embedded counts are literal call sites in archived assistant call source, not actual runtime invocation counts.",
+    "Unused embedded sections also have zero mentions of their tool name in assistant call code. Dynamic computed property calls exist, predominantly for Blender tools; source code was not executed.",
+    "Tokens measured in original Qwen rendered input; section contribution assigned by token starting offset. Serialized description escaping is included.",
+    "Removing sections requires an explicit input policy and retokenization; contribution sums are not a measured post-deletion length or training result.",
+    "The token composition report above covers only the two interaction scenes. The two view scenes have no archived tool declaration or tool call."
+  ]
+}
