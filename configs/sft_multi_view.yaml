@@ -1,7 +1,7 @@
 defaults:
 - data/trajectory
 - template/qwen
-- model: qwen
+- model: qwen38_27b
 - method/sft
 - scene: multi_view
 - tuning: lora

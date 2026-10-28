@@ -4,5 +4,3 @@ experiment:
   output_dir: ../outputs/post_training/Full3DInteraction/sft_v1
   scene: Full3DInteraction
   seed: 42
-template:
-  max_length: 65536

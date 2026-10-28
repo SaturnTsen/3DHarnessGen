@@ -1,3 +1,4 @@
+# Shared Qwen options; select qwen35_9b or qwen38_27b for model-specific settings.
 adapter:
   adapter_name: default
   autocast_adapter_dtype: true
@@ -59,7 +60,6 @@ lora:
   - o_proj
   task_type: CAUSAL_LM
 name: qwen
-path: ~/models/Qwen3.8-27B
 trust_remote_code: false
 tuning: lora
 use_cache: false

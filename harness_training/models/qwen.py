@@ -3,21 +3,35 @@ from __future__ import annotations
 from dataclasses import fields
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from harness_training.types import JsonValue, Processor
+from harness_training.types import Processor
 
 if TYPE_CHECKING:
     from peft import PeftModel
     from transformers import PreTrainedModel
 
-from harness_training.config import ModelConfig, TemplateConfig
+from harness_training.config import LongContextConfig, ModelConfig, TemplateConfig
 from .base import BaseModel
 
 
 class QwenModel(BaseModel):
-    def __init__(self, config: ModelConfig, template_config: TemplateConfig):
+    def __init__(self, config: ModelConfig, template_config: TemplateConfig,
+                 long_context: LongContextConfig | None = None):
         self.config, self.template_config = config, template_config
+        self.long_context = long_context
         self._processor: Processor | None = None
         self.model: PreTrainedModel | PeftModel | None = None
+
+    def validate_runtime(self) -> None:
+        if self.long_context is None:
+            return
+        from importlib.metadata import version
+
+        if version("transformers") != "5.17.0":
+            raise ValueError("Long-context Qwen classes require transformers 5.17.0")
+        if self.long_context.require_optimized_kernels:
+            from .kernels import validate_long_context_kernels
+
+            validate_long_context_kernels()
 
     @property
     def processor(self) -> Processor:
@@ -39,6 +53,7 @@ class QwenModel(BaseModel):
     def load(self) -> PreTrainedModel | PeftModel:
         if self.model is not None:
             return self.model
+        self.validate_runtime()
         import torch
         from transformers import AutoConfig, AutoModelForImageTextToText
 
@@ -61,14 +76,25 @@ class QwenModel(BaseModel):
                 bnb_4bit_compute_dtype=getattr(torch, quantization.bnb_4bit_compute_dtype),
                 bnb_4bit_quant_storage=getattr(torch, quantization.bnb_4bit_quant_storage),
             )
-        self.model = AutoModelForImageTextToText.from_pretrained(
+        model_class = AutoModelForImageTextToText
+        if self.long_context is not None:
+            from .qwen_long_context import LongContextQwenForConditionalGeneration
+
+            if model_config.model_type != "qwen3_5":
+                raise ValueError("long_context requires the qwen3_5 multimodal architecture")
+            model_config.harness_long_context = self.long_context.model_dump(mode="json")
+            model_class = LongContextQwenForConditionalGeneration
+        self.model = model_class.from_pretrained(
             str(self.config.path), local_files_only=self.config.local_files_only,
+            config=model_config,
             trust_remote_code=self.config.trust_remote_code, dtype=getattr(torch, self.config.dtype),
             attn_implementation=self.config.attention_implementation,
             device_map={"": torch.cuda.current_device()} if quantization is not None else self.config.device_map,
             **loading,
         )
         self.model.config.use_cache = self.config.use_cache
+        if self.long_context is not None:
+            self.model.config.get_text_config().update({"use_cache": False})
         if quantization is not None:
             from peft import prepare_model_for_kbit_training
 
@@ -81,7 +107,7 @@ class QwenModel(BaseModel):
             from peft import LoraConfig, LoraRuntimeConfig, PeftModel, get_peft_model
 
             lora = self.config.lora
-            options: dict[str, JsonValue | LoraRuntimeConfig] = lora.backend.model_dump(mode="json")
+            options = lora.backend.model_dump(mode="json")
             options.update(r=lora.rank, lora_alpha=lora.alpha, lora_dropout=lora.dropout,
                            target_modules=lora.target_modules, task_type=lora.task_type, bias=lora.bias)
             options["runtime_config"] = LoraRuntimeConfig(**lora.backend.runtime_config.model_dump())
@@ -106,5 +132,5 @@ class QwenModel(BaseModel):
         if self.model is None:
             raise RuntimeError("Model weights have not been loaded")
         path.mkdir(parents=True, exist_ok=True)
-        self.model.save_pretrained(path)
+        self.model.save_pretrained(str(path))
         self.processor.save_pretrained(path)

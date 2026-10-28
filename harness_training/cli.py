@@ -17,7 +17,10 @@ def execute(config: TrainingConfig, command: str, *, limit: int = 1,
         config.data.accepted_statuses.append("UNKNOWN")
     print("警告：本次运行接受 UNKNOWN 状态的步骤；这些步骤的执行状态尚未确认。", file=sys.stderr)
     trainer = Trainer(config)
-    if command == "audit":
+    if command == "check-runtime":
+        trainer.model.validate_runtime()
+        result = {"runtime_check": "passed", "weights_loaded": False}
+    elif command == "audit":
         result = trainer.audit()
     elif command == "prepare":
         data = trainer.prepare()
@@ -37,7 +40,7 @@ def execute(config: TrainingConfig, command: str, *, limit: int = 1,
 def main() -> None:
     parser = argparse.ArgumentParser(description="Post-training on existing 3DHarnessBench v3 trajectories")
     commands = parser.add_subparsers(dest="command", required=True)
-    for command in ("audit", "prepare", "preview", "train"):
+    for command in ("audit", "prepare", "preview", "train", "check-runtime"):
         entry = commands.add_parser(command)
         entry.add_argument("--config", type=Path, required=True)
         entry.add_argument("--limit", type=int, default=1, help="Number of preview samples")

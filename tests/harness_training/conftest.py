@@ -92,7 +92,10 @@ def tiny_qwen_path(processor, tmp_path_factory):
 @pytest.fixture
 def config(tmp_path):
     write_trajectory(tmp_path / "runs")
-    config = load_config(Path(__file__).resolve().parents[2] / "configs/sft_single_view.yaml", ["tracking=disabled"])
+    config = load_config(Path(__file__).resolve().parents[2] / "configs/sft_single_view.yaml", [
+        "tracking=disabled", "distributed=single", "quantization=none",
+        "method.long_context=null", "model.attention_implementation=sdpa",
+    ])
     config.experiment.name = "test"
     config.experiment.output_dir = tmp_path / "output"
     config.data.runs_root = tmp_path / "runs"
