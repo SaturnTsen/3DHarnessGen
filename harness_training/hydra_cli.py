@@ -16,7 +16,7 @@ from harness_training.config import StrictConfig, parse_config
 
 
 class CommandConfig(StrictConfig):
-    action: Literal["audit", "prepare", "preview", "train"]
+    action: Literal["audit", "prepare", "preview", "train", "check-runtime"]
     limit: int
     split: Literal["train", "validation", "test"]
     render_only: bool

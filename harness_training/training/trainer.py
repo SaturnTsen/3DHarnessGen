@@ -43,7 +43,7 @@ class Trainer:
         self.model: BaseModel
         match config.model.name:
             case "qwen":
-                self.model = QwenModel(config.model, config.template)
+                self.model = QwenModel(config.model, config.template, config.method.long_context)
             case _:
                 raise ValueError(f"Unsupported model: {config.model.name}")
         self._template: BaseTemplate | None = None
@@ -146,6 +146,7 @@ class Trainer:
                 raise ValueError("resume_from must be a saved training checkpoint")
             if resume_from.parent != (output / "checkpoints").resolve():
                 raise ValueError("Resume checkpoint must belong to this output directory")
+        self.model.validate_runtime()
         # Validate and measure inputs before allocating model weights.
         data = self.prepare(encode=True)
         manifest = self._manifest(data)

@@ -57,10 +57,15 @@ class SFTMethod(BaseTrainingMethod):
         if (cfg.backend.eval_strategy != "no" or cfg.backend.do_eval) and not data.validation:
             raise ValueError("Configured evaluation requires a nonempty validation split")
         args = self.build_arguments(output_dir, resume_from)
+        trainer_class = SFTTrainer
+        if model.long_context is not None:
+            from .long_context import LongContextSFTTrainer
+
+            trainer_class = LongContextSFTTrainer
         # The backend's Dataset carries only integer references to in-memory views.
         # Original conversations, images and provenance remain in the existing records.
         examples = data.train + data.validation
-        backend = SFTTrainer(
+        backend = trainer_class(
             model=model.load(), args=args, processing_class=model.processor,
             train_dataset=Dataset.from_dict({"example_index": list(range(len(data.train)))}),
             eval_dataset=Dataset.from_dict({"example_index": list(range(len(data.train), len(examples)))}) if data.validation else None,

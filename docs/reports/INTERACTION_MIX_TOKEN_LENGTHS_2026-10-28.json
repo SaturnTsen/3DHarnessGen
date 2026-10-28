@@ -1,0 +1,208 @@
+{
+  "config": "configs/sft_interaction_mix_9b_fsdp.yaml",
+  "config_sha256": "41f83753172570d4de3ca1aada906a1125a740d6e4e9b50753fd9191c36c2310",
+  "measurement": "Full encoded input including prompt/history, images and current target; no padding or truncation.",
+  "method": "Tokenizer over rendered full input with image placeholders expanded using Processor image dimensions/patch counts. Full encode cross-check every 500 samples and on the longest 10.",
+  "max_length": 32768,
+  "audit": {
+    "objects": 100,
+    "samples": {
+      "train": 5583,
+      "validation": 588,
+      "test": 770
+    },
+    "rejected": 0
+  },
+  "data_rejections": [],
+  "encoding_errors": [],
+  "all": {
+    "count": 6941,
+    "min": 20344,
+    "mean": 55321.94323584498,
+    "median": 53404.0,
+    "max": 131343,
+    "p90": 81978.0,
+    "p95": 92067.0,
+    "p99": 113422.2,
+    "total_tokens": 383989608,
+    "over_budget": 6233
+  },
+  "by_split": {
+    "train": {
+      "count": 5583,
+      "min": 20344,
+      "mean": 55863.19201146337,
+      "median": 53524.0,
+      "max": 131343,
+      "p90": 83623.40000000001,
+      "p95": 94048.39999999995,
+      "p99": 115874.88000000008,
+      "total_tokens": 311884201,
+      "over_budget": 5016
+    },
+    "validation": {
+      "count": 588,
+      "min": 20349,
+      "mean": 51235.17006802721,
+      "median": 51633.0,
+      "max": 95711,
+      "p90": 71164.30000000002,
+      "p95": 76009.9,
+      "p99": 91588.25,
+      "total_tokens": 30126280,
+      "over_budget": 518
+    },
+    "test": {
+      "count": 770,
+      "min": 20351,
+      "mean": 54518.346753246755,
+      "median": 53779.5,
+      "max": 100721,
+      "p90": 78275.6,
+      "p95": 86162.65,
+      "p99": 95768.99999999999,
+      "total_tokens": 41979127,
+      "over_budget": 699
+    }
+  },
+  "by_scene": {
+    "ActiveVisual": {
+      "count": 3505,
+      "min": 20479,
+      "mean": 49323.33266761769,
+      "median": 48943.0,
+      "max": 89340,
+      "p90": 67401.4,
+      "p95": 72463.19999999995,
+      "p99": 80181.04000000001,
+      "total_tokens": 172878281,
+      "over_budget": 3196
+    },
+    "Full3DInteraction": {
+      "count": 3436,
+      "min": 20344,
+      "mean": 61441.014842840515,
+      "median": 61510.0,
+      "max": 131343,
+      "p90": 92106.0,
+      "p95": 100705.25,
+      "p99": 119044.75000000001,
+      "total_tokens": 211111327,
+      "over_budget": 3037
+    }
+  },
+  "histogram": {
+    "(0, 4096]": 0,
+    "(4096, 8192]": 0,
+    "(8192, 16384]": 0,
+    "(16384, 32768]": 708,
+    "(32768, 65536]": 4325,
+    "(65536, 131072]": 1907,
+    "(131072, 262144]": 1,
+    "(262144, inf]": 0
+  },
+  "longest_samples": [
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_121",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 121,
+      "tokens": 131343,
+      "over_budget": true
+    },
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_119",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 119,
+      "tokens": 130898,
+      "over_budget": true
+    },
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_118",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 118,
+      "tokens": 130642,
+      "over_budget": true
+    },
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_116",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 116,
+      "tokens": 130176,
+      "over_budget": true
+    },
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_114",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 114,
+      "tokens": 129791,
+      "over_budget": true
+    },
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_112",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 112,
+      "tokens": 128931,
+      "over_budget": true
+    },
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_110",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 110,
+      "tokens": 128736,
+      "over_budget": true
+    },
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_108",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 108,
+      "tokens": 128029,
+      "over_budget": true
+    },
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_106",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 106,
+      "tokens": 127933,
+      "over_budget": true
+    },
+    {
+      "split": "train",
+      "scene": "Full3DInteraction",
+      "id": "Full3DInteraction:FernFactory:01a08685-8874-7142-9338-7e25a7cb483a:step_104",
+      "path": "/home/ubuntu/3DHarnessGen/3DHarnessBench/runs/Full3DInteraction/gpt-6-astra/FernFactory/post_train_trajectory/trajectory.jsonl",
+      "line": 1,
+      "target_index": 104,
+      "tokens": 127732,
+      "over_budget": true
+    }
+  ],
+  "elapsed_seconds": 109.21918268100126,
+  "full_encode_cross_checks": 24
+}

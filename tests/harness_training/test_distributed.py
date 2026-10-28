@@ -10,13 +10,14 @@ from harness_training.config import load_config, save_config
 from conftest import write_trajectory
 
 
-@pytest.mark.parametrize("strategy, quantization, loss_type", [
-    ("single", "none", "nll"), ("single", "4bit", "nll"),
-    ("ddp", "none", "nll"), ("ddp", "4bit", "nll"),
-    ("fsdp", "none", "nll"), ("fsdp", "4bit", "nll"),
-    ("fsdp", "none", "chunked_nll"),
+@pytest.mark.parametrize("strategy, quantization, loss_type, long_context", [
+    ("single", "none", "nll", False), ("single", "4bit", "nll", False),
+    ("ddp", "none", "nll", False), ("ddp", "4bit", "nll", False),
+    ("fsdp", "none", "nll", False), ("fsdp", "4bit", "nll", False),
+    ("fsdp", "none", "chunked_nll", False),
+    pytest.param("fsdp", "4bit", "nll", True, id="long_context_fsdp_4bit"),
 ])
-def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantization, loss_type):
+def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantization, loss_type, long_context):
     """Run real BF16/4-bit training and collective checkpoint recovery on bounded inputs."""
     import torch
     from safetensors.torch import load_file
@@ -27,6 +28,7 @@ def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantizati
     root = Path(__file__).resolve().parents[2]
     config = load_config(root / "configs/sft_single_view.yaml", [
         f"distributed={strategy}", f"quantization={quantization}",
+        "method.long_context=null", "model.attention_implementation=sdpa",
         "method.gradient_checkpointing=true", "method.backend.bf16=true",
         "method.backend.fp16=false", "method.backend.eval_strategy=no", "method.backend.do_eval=false",
         f"method.backend.loss_type={loss_type}",
@@ -37,6 +39,14 @@ def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantizati
         config.tracking.mode = "offline"
     config.tracking.settings.x_disable_stats = True
     config.model.path = tiny_qwen_path
+    if long_context:
+        from harness_training.config import LongContextConfig
+
+        config.method.long_context = LongContextConfig(
+            require_optimized_kernels=False, activation_dtype="bfloat16", checkpoint_group_size=2,
+            mlp_chunk_size=16, vision_batch_size=1, loss_chunk_size=8,
+        )
+        config.method.backend.prediction_loss_only = True
     config.data.runs_root = tmp_path / "runs"
     config.data.validation_fraction = 0
     config.data.test_fraction = 0

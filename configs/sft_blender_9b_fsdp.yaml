@@ -12,8 +12,6 @@ data:
   image_root: .. # Resolve image URLs from the project root.
   test_fraction: 0.0
   validation_fraction: 0.007680491551459293 # Sample 50 of the current 6510 objects.
-template:
-  max_length: 163840
 method:
   save_steps: 20
 tracking:

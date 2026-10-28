@@ -172,9 +172,19 @@ class LoRAConfig(StrictConfig):
     backend: LoRABackendConfig
 
 
+class LongContextConfig(StrictConfig):
+    require_optimized_kernels: bool
+    activation_dtype: Literal["bfloat16", "float16", "float32"]
+    checkpoint_group_size: int | None = Field(ge=2)
+    mlp_chunk_size: int = Field(gt=0)
+    vision_batch_size: int = Field(gt=0)
+    loss_chunk_size: int = Field(gt=0)
+
+
 class ModelConfig(StrictConfig):
     name: str = Field(min_length=1)
     path: Path
+    max_length: int = Field(ge=16)
     dtype: Literal["bfloat16", "float16", "float32"]
     tuning: Literal["lora", "full"]
     freeze_vision: bool
@@ -355,6 +365,7 @@ class SFTTrainerConfig(StrictConfig):
 
 
 class MethodConfig(StrictConfig):
+    long_context: LongContextConfig | None
     name: str = Field(min_length=1)
     resume_from: Path | None
     backend: SFTBackendConfig
@@ -394,6 +405,36 @@ class TrainingConfig(StrictConfig):
     @model_validator(mode="after")
     def compatible_training(self):
         backend = self.method.backend
+        long_context = self.method.long_context
+        if long_context is not None:
+            if long_context.activation_dtype != self.model.dtype:
+                raise ValueError("long_context.activation_dtype must match model.dtype")
+            if backend.loss_type != "nll" or backend.use_liger_kernel:
+                raise ValueError("long_context implements chunked NLL in the model; "
+                                 "use backend.loss_type: nll and use_liger_kernel: false")
+            if not backend.prediction_loss_only or backend.label_smoothing_factor != 0:
+                raise ValueError("long_context requires prediction_loss_only: true and label_smoothing_factor: 0")
+            if not self.model.freeze_vision:
+                raise ValueError("long_context image microbatches require freeze_vision: true")
+            if (not set(self.model.lora.target_modules) <= {"q_proj", "k_proj", "v_proj", "o_proj"}
+                    or self.model.lora.backend.modules_to_save is not None
+                    or self.model.lora.backend.target_parameters is not None):
+                raise ValueError("long_context supports q/k/v/o LoRA only, without modules_to_save")
+            if self.model.tuning != "lora":
+                raise ValueError("long_context requires tuning: lora")
+            if long_context.checkpoint_group_size is not None and not self.method.gradient_checkpointing:
+                raise ValueError("Grouped checkpointing requires gradient_checkpointing: true")
+            if backend.gradient_checkpointing_kwargs.use_reentrant:
+                raise ValueError("long_context requires use_reentrant: false")
+            if backend.activation_offloading or (backend.fsdp_config is not None and backend.fsdp_config.cpu_offload):
+                raise ValueError("long_context does not permit CPU offloading")
+            if long_context.require_optimized_kernels and self.model.attention_implementation != "flash_attention_2":
+                raise ValueError("Optimized long_context requires attention_implementation: flash_attention_2")
+            if backend.fsdp_config is not None and backend.fsdp_config.transformer_layer_cls_to_wrap not in (
+                None, ["LongContextQwenDecoderLayer"],
+            ):
+                raise ValueError("long_context FSDP may wrap only LongContextQwenDecoderLayer; "
+                                 "vision microbatches must not introduce per-image collectives")
         report_to = backend.report_to
         if self.tracking.mode == "disabled":
             if report_to not in ([], ["none"], "none"):

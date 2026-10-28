@@ -1,0 +1,32 @@
+# Target: two H100 GPUs with at least 80 GB each; 4-bit QLoRA + FSDP2.
+defaults:
+- sft_view_mix_9b_fsdp
+- override model: qwen38_27b
+- _self_
+experiment:
+  name: sft_view_mix_qwen38_27b_qlora_fsdp
+  output_dir: ../outputs/post_training/View-mix/qwen38_27b_qlora_fsdp_epoch1_v1
+model:
+  attention_implementation: flash_attention_2
+  device_map: null
+  freeze_vision: true
+method:
+  long_context:
+    require_optimized_kernels: true
+    activation_dtype: bfloat16
+    checkpoint_group_size: 8
+    mlp_chunk_size: 2048
+    vision_batch_size: 2
+    loss_chunk_size: 256
+  batch_size: 1
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  backend:
+    loss_type: nll
+    prediction_loss_only: true
+    dataloader_pin_memory: false
+    activation_offloading: false
+    fsdp_config:
+      cpu_offload: false
+      transformer_layer_cls_to_wrap:
+      - LongContextQwenDecoderLayer

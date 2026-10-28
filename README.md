@@ -57,12 +57,37 @@ pixi run post-train-distributed train --config configs/sft_view_mix_9b_fsdp.yaml
 pixi run post-train-distributed train --config configs/sft_interaction_mix_9b_fsdp.yaml
 ```
 
+对应的 27B 混合配置为 `configs/sft_view_mix_27b_fsdp.yaml` 和
+`configs/sft_interaction_mix_27b_fsdp.yaml`，分别继承上述两份 9B 配置的数据、模板和对象划分。
+使用 `model=qwen38_27b`，由 `configs/model/qwen38_27b.yaml` 指定 `model.path: ~/models/Qwen3.8-27B`；
+实验名与输出目录均使用 `qwen38_27b`。该目录配置中的架构字段为 `qwen3_5`，基础架构为 `Qwen3_5ForConditionalGeneration`，训练使用其显式子类 `LongContextQwenForConditionalGeneration`。
+目标硬件为两张每卡至少 80 GB 的 H100，采用 NF4 四位量化、BF16 计算和量化存储、
+FSDP2 分片、两级梯度检查点与模型内分块损失（后端填写 `loss_type: nll`），每卡批次 1、梯度累积 8，
+有效批次为 16，训练一轮。27B 长度预算默认为 48K（49,152 token），不截断；超过预算会记录并跳过。
+当前仅验证配置组合和数据设置，尚未在 H100 上验证训练及峰值显存。
+迁移机器时需按实际位置覆盖 `model.path` 和 `data.runs_root`。
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
+  pixi run post-train-distributed train --config configs/sft_view_mix_27b_fsdp.yaml
+CUDA_VISIBLE_DEVICES=0,1 PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
+  pixi run post-train-distributed train --config configs/sft_interaction_mix_27b_fsdp.yaml
+```
+
 ## Hydra 配置组合
 
 四个场景配置现在通过 Hydra 组合公共参数，训练前仍由 Pydantic 严格校验。
 `configs/data`、`template`、`model`、`method` 保存完整公共参数；`scene` 保存场景差异，
 `tuning`、`quantization`、`distributed` 分别选择参数更新、量化和并行方式。
 组合后的字段必须齐全，不使用代码默认值补参数。原有命令继续可用，并支持 Hydra 覆盖：
+
+训练总序列长度预算统一在模型配置的 `max_length` 中设置：
+`configs/model/qwen35_9b.yaml` 为 96K（98,304 token），
+`configs/model/qwen38_27b.yaml` 对应 27B，为 48K（49,152 token）。
+`configs/model/qwen.yaml` 只保存两者共用的模型设置，不单独作为训练模型入口。
+`configs/template/qwen.yaml` 通过 `${model.max_length}` 引用该值，场景和实验配置不再另写长度预算。
+这里的长度包含历史、图片 token 和当前目标回复，不是生成时的 `max_new_tokens`。
+命令行可用 `model.max_length=...` 显式调整；这些预算不代表已完成对应长度的显存实测。
 
 ```bash
 pixi run post-train audit --config configs/sft_single_view.yaml scene=active_visual
@@ -74,7 +99,7 @@ pixi run post-train preview --config configs/sft_single_view.yaml --limit 1 quan
 ```bash
 pixi run post-train-hydra --cfg job --resolve
 pixi run post-train-hydra command.action=audit scene=multi_view
-CUDA_VISIBLE_DEVICES=0 pixi run post-train-hydra --multirun command.action=train method.learning_rate=0.00001,0.00002
+CUDA_VISIBLE_DEVICES=0 pixi run post-train-hydra --multirun command.action=train distributed=single method.learning_rate=0.00001,0.00002
 ```
 
 批量实验按顺序运行，每个任务的训练输出在配置的输出目录下追加独立的批次及任务目录。
@@ -101,7 +126,7 @@ pixi run post-train-hydra --cfg job --resolve
 
 # 单卡 QLoRA，默认在线记录。
 CUDA_VISIBLE_DEVICES=0 pixi run post-train-hydra command.action=train \
-  quantization=4bit \
+  distributed=single quantization=4bit \
   experiment.output_dir=../outputs/post_training/Single-view/qlora_wandb_v1
 
 # 双卡 DDP，同一实验仅由全局主进程记录。
@@ -134,7 +159,7 @@ W&B 按场景分组，自动接收训练后端的 loss、学习率、梯度范�
 | --- | --- | --- |
 | BF16 LoRA | `tuning=lora quantization=none` | BF16 基础权重，加可训练适配器 |
 | QLoRA | `tuning=lora quantization=4bit` | NF4 基础权重、双重量化、BF16 计算，加可训练适配器 |
-| 全参数 | `tuning=full quantization=none` | 更新未被冻结的基础参数；视觉冻结另由 `model.freeze_vision` 控制 |
+| 全参数 | `tuning=full quantization=none model.long_context=null` | 更新未被冻结的基础参数；视觉冻结另由 `model.freeze_vision` 控制 |
 | 单进程 | `distributed=single` | 单卡；显式设置 `device_map` 时可按层放置 |
 | DDP | `distributed=ddp` | 每个进程保存完整模型，处理不同数据并同步梯度 |
 | FSDP2 | `distributed=fsdp` | 分片模型状态，训练 checkpoint 使用分片格式，最终导出收集完整状态 |
@@ -144,7 +169,7 @@ W&B 按场景分组，自动接收训练后端的 loss、学习率、梯度范�
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 pixi run post-train train --config configs/sft_single_view.yaml \
-  quantization=4bit experiment.output_dir=../outputs/post_training/Single-view/qlora_v1
+  distributed=single quantization=4bit experiment.output_dir=../outputs/post_training/Single-view/qlora_v1
 ```
 
 DDP/FSDP 必须通过多进程启动器启动。以下 Pixi 任务在本机启动两个进程：
@@ -166,13 +191,13 @@ QLoRA + FSDP 要求量化存储类型与 `model.dtype` 一致。
 不要在各个 torchrun 进程内运行 Hydra `--multirun`。
 
 27B 的 Single-view 分块损失与双卡 FSDP2 短训配置如下，保留完整输入和图片，
-使用 BF16 LoRA、不量化，梯度累积为 1，最多更新 3 步，并关闭验证和在线记录：
+当前配置继承 qwen38 的四位 QLoRA 与模型内分块损失，梯度累积为 1，最多更新 3 步，并关闭验证和在线记录：
 
 ```bash
 pixi run post-train-distributed train --config configs/sft_single_view_fsdp_trial.yaml
 ```
 
-`chunked_nll` 分块计算当前回复的词表分数与交叉熵；长序列的模型内部激活仍占用显存。
+27B 显式模型类分块计算当前回复的词表分数与交叉熵，后端填写 `loss_type: nll`；长序列的模型内部激活仍占用显存。
 该配置用于检查训练能否运行，不能代替完整训练或验证集评估。
 重复试跑时需显式指定新的 `experiment.output_dir`。
 在双卡 A6000 上，27B BF16 LoRA 的最长 26,749-token 样本仍然 OOM；
@@ -235,12 +260,12 @@ CLI 的 `audit`、`prepare`、`preview` 和 `train` 默认额外接受 `UNKNOWN`
 
 ## 训练
 
-配置中的参数是起始值，不是对 27B 模型显存占用的保证。默认 BF16 LoRA 的基础模型仍以 BF16 加载，需要足够显存；LoRA 本身不压缩基础模型。先调整模型与运行参数，再执行训练。
+配置中的参数是起始值，不是对 27B 模型显存占用的保证。原有 27B 入口默认使用四位 QLoRA 和双卡 FSDP2；BF16 用于计算。训练前仍需在目标硬件验证峰值显存。
 
 `model.device_map` 必须显式填写，当前配置组填写 `null`；单进程跨多张 GPU 放置模型时可填写 `balanced`。这是按层分配权重，不能据此推断多进程训练吞吐或显存余量。
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 pixi run post-train train --config configs/sft_single_view.yaml
+pixi run post-train-distributed train --config configs/sft_single_view.yaml
 ```
 
 训练会先用 Processor 检查所有选中的样本。过长或无法可靠转换的样本记录后跳过，不自动截断。检查通过后才加载模型权重。每条样本只学习当前选定的 assistant 回复，system、用户请求、历史回复、工具返回、图片与补齐位置均不计算训练误差。
@@ -260,6 +285,17 @@ method:
 交互场景仅使用该步骤历史中选定的 `additional_tools` 声明，不回退到静态工具文件。选定历史内的 system/developer 指令按顺序合并为 Qwen 的 system 输入；归档角色不修改。function 参数从 JSON 字符串解析为对象；custom 工具根据 YAML 的 `template.custom_tools` 显式映射（当前 `exec: input`），包装成函数调用，原始代码保持不变。工具命名空间和 custom 输入格式作为工具说明保留。未知 custom 映射会记录为编码失败。
 
 训练侧不执行工具，也不实现部署时的工具调用解析或执行环境。部署方需将模型输出的 `exec(input=...)` 还原为原 runtime 的 custom `exec` 调用；本次未接入服务推理。
+
+## 双卡 H100 的 27B 48k 配置
+
+优化仅由 `configs/sft_view_mix_27b_fsdp.yaml` 和
+`configs/sft_interaction_mix_27b_fsdp.yaml` 启用，两组任务分别训练、分别保存。
+两份入口复用 `model: qwen38_27b`，在入口中覆盖优化选项；`method.long_context` 明确配置重算和分块。
+`model/` 与四个单场景 YAML 保持原有职责，不加入优化设置，也不另设 `_h100_48k.yaml`。
+采用 NF4 QLoRA、FSDP2、原生注意力内核、两级 GPU 重算、前馈分块及图片分批编码，不使用 CPU 卸载。
+该路径由显式模型子类实现分块损失，不运行时替换 `forward`。
+安装、内核检查、测试和试跑命令见 [H100 48k 说明](docs/H100_48K_TRAINING.md)。
+本地仅完成静态检查，H100 训练与显存测试待目标服务器执行。
 
 ## 验证代码
 

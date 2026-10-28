@@ -4,5 +4,3 @@ experiment:
   output_dir: ../outputs/post_training/ActiveVisual/sft_v1
   scene: ActiveVisual
   seed: 42
-template:
-  max_length: 65536
