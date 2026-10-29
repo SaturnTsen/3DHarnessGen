@@ -20,6 +20,8 @@ def execute(config: TrainingConfig, command: str, *, limit: int = 1,
     if command == "check-runtime":
         trainer.model.validate_runtime()
         result = {"runtime_check": "passed", "weights_loaded": False}
+    elif command == "check-resume":
+        result = trainer.check_resume()
     elif command == "audit":
         result = trainer.audit()
     elif command == "prepare":
@@ -40,7 +42,7 @@ def execute(config: TrainingConfig, command: str, *, limit: int = 1,
 def main() -> None:
     parser = argparse.ArgumentParser(description="Post-training on existing 3DHarnessBench v3 trajectories")
     commands = parser.add_subparsers(dest="command", required=True)
-    for command in ("audit", "prepare", "preview", "train", "check-runtime"):
+    for command in ("audit", "prepare", "preview", "train", "check-runtime", "check-resume"):
         entry = commands.add_parser(command)
         entry.add_argument("--config", type=Path, required=True)
         entry.add_argument("--limit", type=int, default=1, help="Number of preview samples")

@@ -394,10 +394,35 @@ elastic 采用独立随机种子确定每轮全局样本排列，在已完成参
 配置指纹变化就整体绕过数据、模型、模板、版本和代码检查。旧 checkpoint 本身不被改写。
 
 当前 elastic 限定 LoRA/QLoRA、PyTorch AdamW、FSDP2 分片格式以及固定的全局 batch。
-学习率、优化器种类、数据、模板、LoRA 和精度设置仍须一致。原优化器、调度器和 global_step
+学习率、优化器种类、数据、模板规则、LoRA 和精度设置仍须一致。原优化器、调度器和 global_step
 被恢复，W&B 使用原 ID；线上已写到 checkpoint 之后的记录不会自动回滚。
 原 run 的 `resume/*` 汇总记录保存恢复时的步数、数据位置和新旧 GPU 数量。
 改变 GPU 数量后各卡随机流会重新确定，不能承诺逐位相同的 dropout 或浮点结果。
+
+### 恢复前检查与长度预算
+
+把恢复命令中的 `train` 替换成 `check-resume`，可以在不加载 Processor、不编码图片、
+不加载模型张量、不连接 W&B 的情况下，检查 checkpoint 状态文件、原配置、版本、代码、
+源文件摘要、全局 batch、数据位置及本地 W&B 身份。例如：
+
+```bash
+CUDA_VISIBLE_DEVICES=2,3 pixi run post-train-distributed check-resume \
+  --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml \
+  tracking.entity=lingada60-institut-polytechnique-de-paris \
+  tracking.project=huggingface \
+  method.resume_policy=elastic method.batch_size=2 method.gradient_accumulation_steps=2 \
+  method.resume_from=/mnt/disk5/bingchen/3DHarnessGen/outputs/post_training/3DCodeVerse/r2_qwen35_9b_qlora_fsdp_epoch2_v1/checkpoints/checkpoint-2840
+```
+
+正式 `train` 在任何 preflight 编码前也执行相同检查。差异显示为具体配置字段、包版本、
+文件路径及原/新摘要，完整报告写入 `temp/resume_check.json`，不覆盖原训练报告。
+检查通过只表示上述静态条件满足；实际样本编码、张量加载、GPU 显存及线上 W&B 连通性仍在训练时检查。
+
+elastic 恢复允许提高 `model.max_length` / `template.max_length`，但固定使用原 checkpoint
+的 train/validation/test 样本集合和顺序，原先因超长而排除的样本不会插入本轮训练。
+这避免长度预算变化被误判为数据变化，以及插入新样本导致位置错乱。
+降低任一长度预算会在编码前拒绝，请恢复原值或更高值；需要重新选择样本时应启动新训练。
+原始轨迹、图片或模型元数据实际变更时仍拒绝恢复，并在报告中指明具体文件。
 
 恢复时检查数据、图片、模板、模型配置及关键训练参数是否变化。允许调整训练总步数和日志／保存频率。
 

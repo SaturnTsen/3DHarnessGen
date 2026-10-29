@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from harness_training.config import TrainingConfig
+from .manifest import ResumeMismatch, differences
 
 
 class DataProgress(BaseModel):
@@ -36,6 +37,8 @@ def target_hash(targets: list[str]) -> str:
 def normalized_config(config: dict) -> dict:
     result = deepcopy(config)
     result.pop("distributed")
+    result["model"].pop("max_length")
+    result["template"].pop("max_length")
     method = result["method"]
     for key in ("resume_policy", "batch_size", "gradient_accumulation_steps"):
         method.pop(key, None)
@@ -45,13 +48,23 @@ def normalized_config(config: dict) -> dict:
 
 
 def validate_manifest(prior: dict, current: dict) -> None:
-    if any(prior[key] != current[key] for key in ("sources", "versions", "targets")):
-        raise ValueError("Elastic resume: data, images, model files or backend versions changed")
-    if normalized_config(prior["config"]) != normalized_config(current["config"]):
-        raise ValueError("Elastic resume: incompatible model, template or training settings changed")
+    details = []
+    for key in ("sources", "versions", "targets"):
+        details.extend(differences(prior[key], current[key], key))
+    details.extend(differences(normalized_config(prior["config"]), normalized_config(current["config"]), "config"))
+    for section in ("model", "template"):
+        previous = prior["config"][section]["max_length"]
+        selected = current["config"][section]["max_length"]
+        if selected < previous:
+            details.append({"field": f"config.{section}.max_length", "change": "decreased",
+                            "previous": previous, "current": selected,
+                            "reason": "Restore the original limit or increase it; lowering may remove checkpoint samples"})
     known_legacy = json.loads(Path(__file__).with_name("legacy_code.json").read_text())
     if prior["code"] != current["code"] and prior["code"] not in known_legacy.values():
-        raise ValueError("Elastic resume: source training code is not a supported version")
+        details.append({"field": "code", "change": "not a supported version"})
+        details.extend(differences(prior["code"], current["code"], "code"))
+    if details:
+        raise ResumeMismatch(details)
 
 
 def load_progress(checkpoint: Path, prior: dict, config: TrainingConfig, world_size: int) -> DataProgress:

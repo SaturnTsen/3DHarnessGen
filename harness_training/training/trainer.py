@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.metadata
 import json
 import os
 import time
@@ -24,6 +23,8 @@ from harness_training.templates.qwen import QwenTemplate
 from harness_training.training.methods.base import BaseTrainingMethod
 from harness_training.training.methods.sft import SFTMethod
 from harness_training.training.tracking import tracking_session, record_resume_transition
+from .manifest import backend_versions, code_identity, config_identity, hash_file, model_sources, hash_source
+from .resume import check_resume, verify_encoded_manifest
 
 if TYPE_CHECKING:
     from harness_training.data.base import TrainingExample
@@ -68,10 +69,28 @@ class Trainer:
             self._template = QwenTemplate(self.config.template, self.model.processor)
         return self._template
 
-    def prepare(self, *, encode: bool = False) -> DatasetBundle:
+    def prepare(self, *, encode: bool = False, resume_targets: dict | None = None) -> DatasetBundle:
         if encode:
             preflight_log("开始读取轨迹、校验格式和检查图片；尚未加载模型权重。")
         data = self.dataset.prepare()
+        if resume_targets is not None:
+            from .manifest import ResumeMismatch, differences
+
+            for split in ("train", "validation", "test"):
+                selected = set(resume_targets[split])
+                examples = [example for example in data.examples(split) if example.id in selected]
+                details = differences(resume_targets[split], [example.id for example in examples], f"targets.{split}")
+                if details:
+                    raise ResumeMismatch(details)
+                excluded = [example for example in data.examples(split) if example.id not in selected]
+                for example in excluded:
+                    data.rejected.append({"id": example.id, "path": str(example.record.path),
+                                          "reason": "Not selected by the source checkpoint; not added during resume",
+                                          "stage": "resume_selection"})
+                if encode:
+                    preflight_log(f"固定 checkpoint 的 {split} 样本集合：保留 {len(examples)}，"
+                                  f"未插入 {len(excluded)} 条其他候选。")
+                setattr(data, split, examples)
         if encode:
             preflight_log(f"数据检查完成：{data.report()['samples']}，拒绝记录 {len(data.rejected)} 条。")
             shown_errors = 0
@@ -122,42 +141,22 @@ class Trainer:
         return results
 
     def _manifest(self, data: DatasetBundle) -> Manifest:
-        identity: JsonObject = self.config.model_dump(mode="json")
-        cast(JsonObject, identity["experiment"]).pop("output_dir")
-        for key in ("max_steps", "epochs", "logging_steps", "save_steps", "eval_steps", "save_total_limit", "dataloader_workers"):
-            cast(JsonObject, identity["method"]).pop(key)
-        cast(JsonObject, identity["method"]).pop("resume_from")
+        identity = config_identity(self.config)
         sources = dict(data.source_hashes)
         images = {path for split in (data.train, data.validation, data.test) for example in split
                   for index in example.indices for path in example.record.images_by_message[index]}
         for path in sorted(images):
-            sources[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in sorted(self.config.model.path.glob("*.json")) + sorted(self.config.model.path.glob("*.jinja")):
-            sources[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
-        initialization = self.config.model.init_from
-        if initialization is not None:
-            for name in ("adapter_config.json", "adapter_model.safetensors", "adapter_model.bin",
-                         "pytorch_model_fsdp_0/.metadata"):
-                path = initialization / name
-                if path.is_file():
-                    sources[str(path)] = hashlib.sha256(path.read_bytes()).hexdigest()
-            if (initialization / "pytorch_model_fsdp_0/.metadata").is_file():
-                snapshot = initialization.parent.parent / "resolved_config.yaml"
-                sources[str(snapshot)] = hashlib.sha256(snapshot.read_bytes()).hexdigest()
-                # FSDP shards also hold the frozen base model. Track their identity
-                # without reading hundreds of GB just to fingerprint the adapters.
-                for path in sorted((initialization / "pytorch_model_fsdp_0").glob("*.distcp")):
-                    stat = path.stat()
-                    sources[str(path)] = hashlib.sha256(f"{stat.st_size}:{stat.st_mtime_ns}".encode()).hexdigest()
-        versions = {name: importlib.metadata.version(name) for name in ("torch", "transformers", "trl", "pydantic-yaml")}
-        code_root = Path(__file__).resolve().parents[1]
-        code = {str(path.relative_to(code_root)): hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in sorted(code_root.rglob("*.py"))}
+            sources[str(path)] = hash_file(path)
+        for path in model_sources(self.config):
+            sources[str(path)] = hash_source(path)
         payload: ManifestPayload = {
-            "config": identity, "sources": sources, "versions": versions, "code": code,
+            "config": identity, "sources": sources, "versions": backend_versions(), "code": code_identity(),
             "targets": {split: [e.id for e in data.examples(split)] for split in ("train", "validation", "test")},
         }
         return {**payload, "fingerprint": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()}
+
+    def check_resume(self) -> dict:
+        return check_resume(self.config, int(os.environ.get("WORLD_SIZE", "1")))[2]
 
     def run(self) -> Metrics:
         # Revalidate programmatic edits before loading the Processor or weights.
@@ -181,13 +180,20 @@ class Trainer:
                 raise ValueError("resume_from must be a saved training checkpoint")
             if resume_from.parent != (output / "checkpoints").resolve():
                 raise ValueError("Resume checkpoint must belong to this output directory")
+        prior = None
+        resume_report = None
+        if resume_from is not None:
+            if int(os.environ.get("RANK", "0")) == 0:
+                print("[resume] 提前检查 checkpoint、配置、版本、源文件和 W&B 身份；不加载 Processor。", flush=True)
+            prior, progress, resume_report = check_resume(self.config, world_size)
+            cast(SFTMethod, self.method).resume_progress = progress
         preflight_log("检查训练运行环境和优化内核。")
         self.model.validate_runtime()
         # Validate and measure inputs before allocating model weights.
-        data = self.prepare(encode=True)
-        if int(os.environ.get("RANK", "0")) == 0:
-            self.save_report(data)
+        data = self.prepare(encode=True, resume_targets=prior["targets"] if prior is not None else None)
         if not data.train:
+            if int(os.environ.get("RANK", "0")) == 0:
+                self.save_report(data)
             reasons = Counter(item["reason"] for item in data.rejected)
             summary = "; ".join(f"{count} 条：{reason[:500]}" for reason, count in reasons.most_common(3))
             raise ValueError(
@@ -197,22 +203,18 @@ class Trainer:
             )
         preflight_log("编码完成，计算数据指纹；模型权重尚未加载。")
         manifest = self._manifest(data)
-        if resume_from is not None:
-            prior_path = resume_from / "resume_manifest.json"
-            prior = json.loads((prior_path if prior_path.is_file() else output / "manifest.json").read_text())
+        if prior is not None:
+            verify_encoded_manifest(prior, cast(dict, manifest), self.config, cast(dict, resume_report))
             if self.config.method.resume_policy == "elastic":
-                from .elastic import load_progress, validate_manifest
+                from .elastic import DataProgress
 
-                validate_manifest(prior, cast(dict, manifest))
-                method = cast(SFTMethod, self.method)
-                method.resume_progress = load_progress(resume_from, prior, self.config, world_size)
-                preflight_log(f"恢复数据位置：第 {method.resume_progress.epoch} 轮，"
-                              f"下一样本位置 {method.resume_progress.next_sample}；"
-                              f"进程数 {method.resume_progress.world_size} → {world_size}。")
-            elif prior["fingerprint"] != manifest["fingerprint"]:
-                raise ValueError("Data, model, template, or training settings changed since this checkpoint")
+                progress = cast(DataProgress, cast(SFTMethod, self.method).resume_progress)
+                preflight_log(f"恢复数据位置：第 {progress.epoch} 轮，"
+                              f"下一样本位置 {progress.next_sample}；"
+                              f"进程数 {progress.world_size} → {world_size}。")
         cast(SFTMethod, self.method).resume_manifest = manifest
         if int(os.environ.get("RANK", "0")) == 0:
+            self.save_report(data)
             # Keep legacy provenance available when retrying an older checkpoint.
             if resume_from is None or self.config.method.resume_policy == "strict":
                 save_config(self.config, output / "resolved_config.yaml")

@@ -41,6 +41,15 @@ class TrajectoryDataset(BaseDataset):
         if self.config.files is not None:
             return self._prepare_files(self.config.files)
         bundle = DatasetBundle()
+        paths = self.input_paths()
+        assignments = self._split_objects(paths)
+        for path in paths:
+            self._append_path(bundle, path, assignments)
+        return bundle
+
+    def input_paths(self) -> list[Path]:
+        if self.config.files is not None:
+            return self.config.files
         paths: list[Path] = []
         for scene in self.scenes:
             root = self.config.runs_root / scene / self.config.source_model
@@ -53,38 +62,38 @@ class TrajectoryDataset(BaseDataset):
             if not selected:
                 raise DataError(f"No trajectory.jsonl files found under {root}")
             paths.extend(selected)
-        assignments = self._split_objects(paths)
-        for path in paths:
-            sessions: set[str] = set()
-            instance = path.parent.parent.name
-            split = assignments[instance]
-            bundle.assignments[instance] = split
-            payload = path.read_bytes()
-            bundle.source_hashes[str(path)] = hashlib.sha256(payload).hexdigest()
-            if not payload:
-                bundle.rejected.append({"path": str(path), "reason": "Empty trajectory file"})
-            for line_number, line in enumerate(payload.decode("utf-8").splitlines(), 1):
-                try:
-                    row = validate_record(line)
-                    if row.metadata.scene != path.parents[3].name:
-                        raise DataError("Scene metadata does not match input path")
-                    record = self._read_record(path, line_number, instance, row)
-                    if record.row.metadata.session_id in sessions:
-                        raise DataError("Duplicate session_id within object")
-                    sessions.add(record.row.metadata.session_id)
-                    examples = self._select(record)
-                except ValueError as exc:
-                    bundle.rejected.append({"path": str(path), "line": line_number, "reason": str(exc)})
-                    continue
-                for example in examples:
-                    errors = self._example_errors(example)
-                    if errors:
-                        if self.config.missing_images == "error":
-                            raise DataError(f"{example.id}: {'; '.join(errors)}")
-                        bundle.rejected.append({"id": example.id, "path": str(path), "reason": "; ".join(errors)})
-                    else:
-                        bundle.examples(split).append(example)
-        return bundle
+        return paths
+
+    def _append_path(self, bundle: DatasetBundle, path: Path, assignments: dict) -> None:
+        sessions: set[str] = set()
+        instance = path.parent.parent.name
+        split = assignments[instance]
+        bundle.assignments[instance] = split
+        payload = path.read_bytes()
+        bundle.source_hashes[str(path)] = hashlib.sha256(payload).hexdigest()
+        if not payload:
+            bundle.rejected.append({"path": str(path), "reason": "Empty trajectory file"})
+        for line_number, line in enumerate(payload.decode("utf-8").splitlines(), 1):
+            try:
+                row = validate_record(line)
+                if row.metadata.scene != path.parents[3].name:
+                    raise DataError("Scene metadata does not match input path")
+                record = self._read_record(path, line_number, instance, row)
+                if record.row.metadata.session_id in sessions:
+                    raise DataError("Duplicate session_id within object")
+                sessions.add(record.row.metadata.session_id)
+                examples = self._select(record)
+            except ValueError as exc:
+                bundle.rejected.append({"path": str(path), "line": line_number, "reason": str(exc)})
+                continue
+            for example in examples:
+                errors = self._example_errors(example)
+                if errors:
+                    if self.config.missing_images == "error":
+                        raise DataError(f"{example.id}: {'; '.join(errors)}")
+                    bundle.rejected.append({"id": example.id, "path": str(path), "reason": "; ".join(errors)})
+                else:
+                    bundle.examples(split).append(example)
 
     def _split_objects(self, paths: list[Path]) -> dict[str, Literal["train", "validation", "test"]]:
         return self._split_instances(sorted({path.parent.parent.name for path in paths}))
