@@ -381,6 +381,18 @@ pixi run python -m torch.distributed.run \
 安装、内核检查、测试和试跑命令见 [H100 48k 说明](docs/H100_48K_TRAINING.md)。
 本地仅完成静态检查，H100 训练与显存测试待目标服务器执行。
 
+## 使用 vLLM 加载训练 checkpoint
+
+快速切换 checkpoint 的三个通用入口：`scripts/serve_checkpoint.py`、
+`scripts/run_3dharness_checkpoint.py`、`scripts/eval_mmsi_checkpoint.py`。
+三者根据相同的 `--checkpoint-path` 自动统一服务名，结果按 checkpoint 隔离；
+完整命令见 [通用 checkpoint 与 benchmark 启动](docs/CHECKPOINT_BENCHMARKS.md)。
+
+使用 `scripts/serve_checkpoint.py --checkpoint-path ... --base-model-path ...` 启动基础模型与训练后的 LoRA。
+其余参数沿用 `vllm serve`；脚本支持标准适配器和 FSDP 分片，只提取 LoRA，不修改原 checkpoint。
+客户端须在 `model` 字段填写启动时打印的适配器名称。
+完整命令、图片设置、量化说明和并行用法见 [checkpoint 服务说明](docs/SERVE_CHECKPOINT.md)。
+
 ## 验证代码
 
 通过现有 CLI 执行冒烟测试：
