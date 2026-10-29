@@ -369,6 +369,7 @@ class MethodConfig(StrictConfig):
     long_context: LongContextConfig | None
     name: str = Field(min_length=1)
     resume_from: Path | None
+    resume_policy: Literal["strict", "elastic"]
     backend: SFTBackendConfig
     trainer: SFTTrainerConfig
     learning_rate: float = Field(gt=0)
@@ -405,6 +406,25 @@ class TrainingConfig(StrictConfig):
 
     @model_validator(mode="after")
     def compatible_training(self):
+        if self.method.resume_policy == "elastic":
+            backend = self.method.backend
+            if self.model.tuning != "lora" or self.model.lora.backend.modules_to_save is not None:
+                raise ValueError("Elastic resume requires LoRA without modules_to_save")
+            if backend.save_only_model or backend.ignore_data_skip or backend.dataloader_drop_last:
+                raise ValueError("Elastic resume requires full training checkpoints, data skipping and no drop_last")
+            if backend.train_sampling_strategy not in {"random", "sequential"}:
+                raise ValueError("Elastic resume supports random or sequential sampling")
+            if not backend.average_tokens_across_devices or backend.auto_find_batch_size:
+                raise ValueError("Elastic resume requires global token normalization and fixed batch sizes")
+            if backend.optim not in {"adamw_torch", "adamw_torch_fused"}:
+                raise ValueError("Elastic resume currently supports torch AdamW optimizers")
+            if backend.loss_type not in {"nll", "chunked_nll"} or backend.label_smoothing_factor != 0:
+                raise ValueError("Elastic resume requires token-normalized NLL without label smoothing")
+            if backend.use_liger_kernel or backend.activation_offloading:
+                raise ValueError("Elastic resume does not support Liger or activation offloading")
+            if backend.fsdp_config is not None and (backend.fsdp_config.version != 2
+                    or backend.fsdp_config.state_dict_type != "SHARDED_STATE_DICT"):
+                raise ValueError("Elastic resume requires FSDP2 sharded checkpoints")
         if self.model.init_from is not None and self.model.tuning != "lora":
             raise ValueError("model.init_from currently requires tuning: lora")
         backend = self.method.backend

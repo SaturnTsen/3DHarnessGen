@@ -331,6 +331,74 @@ method:
   resume_from: ../outputs/post_training/Single-view/sft_v1/checkpoints/checkpoint-100
 ```
 
+通过 Pixi 的 `post-train` / `post-train-distributed` 入口恢复时，也可以在命令行填写
+`method.resume_from=auto`，按步数从大到小选择原输出目录中可恢复的 checkpoint：
+
+```bash
+CUDA_VISIBLE_DEVICES=3 pixi run post-train train \
+  --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml \
+  distributed=single \
+  tracking.entity=lingada60-institut-polytechnique-de-paris \
+  tracking.project=huggingface \
+  method.resume_from=auto
+```
+
+保留原训练的所有配置覆盖项及输出目录。启动层检查训练状态 JSON、权重、优化器、调度器及
+各进程随机状态文件；跳过缺文件、JSON 未写完或进程数不匹配的候选并打印原因，没有候选则报错，
+不会从头开始。文件检查不能证明所有张量未损坏，实际加载失败仍会报错。
+`auto` 仅是这两个 Pixi 入口的命令行选项，YAML 中仍填写 `null` 或具体路径。
+默认 `method.resume_policy: strict`，原始配置、数据、代码指纹检查和 W&B `resume=must`
+策略照常执行。保留原目录的 `manifest.json`、`resolved_config.yaml` 和 `wandb_run.json`。
+跨卡数恢复须显式选择下述 `elastic` 策略，单独指定 `auto` 不会放宽检查。
+
+### 改变 GPU 数量后恢复
+
+`method.resume_policy=elastic` 支持在 data、model、template 不变时，改变 GPU 数量、
+single/DDP/FSDP2 并行方式、每卡 batch 和梯度累积，但必须保持每次参数更新的全局样本数不变：
+
+```text
+全局 batch = GPU 数量 × method.batch_size × method.gradient_accumulation_steps
+```
+
+例如原单卡 batch=1、累积=8，改用双卡时将累积改成 4。仍使用原输出目录、
+数据路径、初始化来源、W&B 项目和团队，续接同一 run，而不是设置 `model.init_from` 开启新阶段：
+
+```bash
+CUDA_VISIBLE_DEVICES=2,3 \
+PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
+pixi run post-train-distributed train \
+  --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml \
+  distributed=fsdp \
+  tracking.entity=lingada60-institut-polytechnique-de-paris \
+  tracking.project=huggingface \
+  method.resume_policy=elastic \
+  method.gradient_accumulation_steps=4 \
+  method.resume_from=/mnt/disk5/bingchen/3DHarnessGen/outputs/post_training/3DCodeVerse/r2_qwen35_9b_qlora_fsdp_epoch2_v1/checkpoints/checkpoint-2840
+```
+
+`method.resume_from=auto` 同样可与 elastic 组合。四进程须改用
+`pixi run python -m torch.distributed.run --standalone --nnodes=1 --nproc-per-node=4
+-m scripts.post_train train --config ...`，上例的累积相应为 2。默认 Pixi 分布式任务固定启动两进程。
+
+elastic 采用独立随机种子确定每轮全局样本排列，在已完成参数更新的边界保存下一样本位置。
+更改卡数仅重新分配同一全局批次，轮次尾部通过不计算误差的占位样本补齐通信，不额外训练真实样本。
+新 checkpoint 增加 `data_progress.json`、`resume_manifest.json` 和 `portable_state.pt`，
+后者仅收集可训练 LoRA 与按参数名组织的优化器状态，不收集完整冻结基础模型；会增加 checkpoint
+大小和保存时间。原始 checkpoint 仍保留。更新状态成功写完后才发布数据位置文件。
+
+旧 checkpoint 从 `trainer_state.json`、原 manifest、采样种子和每进程随机状态重建数据位置；
+只接受已列入兼容清单的旧训练代码或当前代码，以及可重建的 random/sequential 采样。
+当前旧版本清单覆盖 `b9a0498`、`4c5fe94`、`59f7fb3` 的训练包代码快照；
+其间仅变更配置或文档、训练包代码相同的提交同样适用。
+不支持 drop_last、非可复现随机采样和其他自定义采样。无法证明数据位置时拒绝启动；不会仅因
+配置指纹变化就整体绕过数据、模型、模板、版本和代码检查。旧 checkpoint 本身不被改写。
+
+当前 elastic 限定 LoRA/QLoRA、PyTorch AdamW、FSDP2 分片格式以及固定的全局 batch。
+学习率、优化器种类、数据、模板、LoRA 和精度设置仍须一致。原优化器、调度器和 global_step
+被恢复，W&B 使用原 ID；线上已写到 checkpoint 之后的记录不会自动回滚。
+原 run 的 `resume/*` 汇总记录保存恢复时的步数、数据位置和新旧 GPU 数量。
+改变 GPU 数量后各卡随机流会重新确定，不能承诺逐位相同的 dropout 或浮点结果。
+
 恢复时检查数据、图片、模板、模型配置及关键训练参数是否变化。允许调整训练总步数和日志／保存频率。
 
 要在同一个基础模型上继承上一阶段的 LoRA 权重、改用另一份配置的数据训练，设置

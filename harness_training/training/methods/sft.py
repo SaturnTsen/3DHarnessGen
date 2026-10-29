@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from accelerate.utils import FullyShardedDataParallelPlugin
     from trl import SFTConfig
+    from harness_training.training.elastic import DataProgress
+    from harness_training.types import Manifest
 
 from harness_training.config import MethodConfig
 from harness_training.data.base import DatasetBundle
@@ -20,6 +22,8 @@ from .base import BaseTrainingMethod
 class SFTMethod(BaseTrainingMethod):
     def __init__(self, config: MethodConfig, seed: int):
         self.config, self.seed = config, seed
+        self.resume_manifest: Manifest | None = None
+        self.resume_progress: DataProgress | None = None
 
     def build_arguments(self, output_dir: Path, resume_from: Path | None) -> SFTConfig:
         from trl import SFTConfig
@@ -62,6 +66,12 @@ class SFTMethod(BaseTrainingMethod):
             from .long_context import LongContextSFTTrainer
 
             trainer_class = LongContextSFTTrainer
+        elastic_options = {}
+        if cfg.resume_policy == "elastic":
+            from .elastic import ElasticSFTTrainer, ElasticLongContextSFTTrainer
+
+            trainer_class = ElasticLongContextSFTTrainer if model.long_context is not None else ElasticSFTTrainer
+            elastic_options = {"resume_manifest": self.resume_manifest, "resume_progress": self.resume_progress}
         # The backend's Dataset carries only integer references to in-memory views.
         # Original conversations, images and provenance remain in the existing records.
         examples = data.train + data.validation
@@ -74,6 +84,7 @@ class SFTMethod(BaseTrainingMethod):
                                       attention_padding_value=template.config.attention_padding_value,
                                       token_type_padding_value=template.config.token_type_padding_value),
             **cfg.trainer.model_dump(),
+            **elastic_options,
         )
         result = backend.train(resume_from_checkpoint=str(resume_from) if resume_from else None)
         metrics: Metrics = dict(result.metrics)

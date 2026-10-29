@@ -23,7 +23,7 @@ from harness_training.templates.base import BaseTemplate, SampleTooLong, Templat
 from harness_training.templates.qwen import QwenTemplate
 from harness_training.training.methods.base import BaseTrainingMethod
 from harness_training.training.methods.sft import SFTMethod
-from harness_training.training.tracking import tracking_session
+from harness_training.training.tracking import tracking_session, record_resume_transition
 
 if TYPE_CHECKING:
     from harness_training.data.base import TrainingExample
@@ -198,14 +198,30 @@ class Trainer:
         preflight_log("编码完成，计算数据指纹；模型权重尚未加载。")
         manifest = self._manifest(data)
         if resume_from is not None:
-            prior = json.loads((output / "manifest.json").read_text())
-            if prior["fingerprint"] != manifest["fingerprint"]:
+            prior_path = resume_from / "resume_manifest.json"
+            prior = json.loads((prior_path if prior_path.is_file() else output / "manifest.json").read_text())
+            if self.config.method.resume_policy == "elastic":
+                from .elastic import load_progress, validate_manifest
+
+                validate_manifest(prior, cast(dict, manifest))
+                method = cast(SFTMethod, self.method)
+                method.resume_progress = load_progress(resume_from, prior, self.config, world_size)
+                preflight_log(f"恢复数据位置：第 {method.resume_progress.epoch} 轮，"
+                              f"下一样本位置 {method.resume_progress.next_sample}；"
+                              f"进程数 {method.resume_progress.world_size} → {world_size}。")
+            elif prior["fingerprint"] != manifest["fingerprint"]:
                 raise ValueError("Data, model, template, or training settings changed since this checkpoint")
+        cast(SFTMethod, self.method).resume_manifest = manifest
         if int(os.environ.get("RANK", "0")) == 0:
-            save_config(self.config, output / "resolved_config.yaml")
-            write_json(output / "manifest.json", manifest)
+            # Keep legacy provenance available when retrying an older checkpoint.
+            if resume_from is None or self.config.method.resume_policy == "strict":
+                save_config(self.config, output / "resolved_config.yaml")
+                write_json(output / "manifest.json", manifest)
         preflight_log("预检查完成，进入训练后端并加载模型权重。")
         with tracking_session(self.config, resume_from, is_main_process=int(os.environ.get("RANK", "0")) == 0):
+            progress = cast(SFTMethod, self.method).resume_progress
+            if progress is not None:
+                record_resume_transition(self.config, progress, world_size)
             metrics = self.method.run(self.model, self.template, data, output, resume_from)
             # Distributed training has a single writer for the final metrics.
             if int(os.environ.get("RANK", "0")) == 0:

@@ -7,8 +7,32 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 from typing import Literal
+from typing import TYPE_CHECKING
 
 from harness_training.config import StrictConfig, TrainingConfig
+
+if TYPE_CHECKING:
+    from harness_training.training.elastic import DataProgress
+
+
+def record_resume_transition(config: TrainingConfig, progress: DataProgress, world_size: int) -> None:
+    """Record topology changes on the existing run without adding fake training steps."""
+    if config.tracking.mode == "disabled" or int(os.environ.get("RANK", "0")) != 0:
+        return
+    import wandb
+
+    if wandb.run is None:
+        raise ValueError("Resume transition requires the original W&B run")
+    wandb.run.config.update({"post_training": config.model_dump(
+        mode="json", exclude={"method": {"backend": {"hub_token"}}})}, allow_val_change=True)
+    wandb.run.summary.update({
+        "resume/source_world_size": progress.world_size,
+        "resume/world_size": world_size,
+        "resume/global_step": progress.global_step,
+        "resume/epoch": progress.epoch,
+        "resume/next_sample": progress.next_sample,
+        "resume/global_batch_size": progress.global_batch_size,
+    })
 
 
 class WandbRunState(StrictConfig):

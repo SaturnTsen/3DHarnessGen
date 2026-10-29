@@ -6,9 +6,9 @@ version = "0.1.0"
 
 [tasks]
 validate-trajectory = "python tools/validate_trajectory.py"
-post-train = "python -m harness_training.cli"
+post-train = "python -m scripts.post_train"
 post-train-hydra = "python -m harness_training.hydra_cli"
-post-train-distributed = "torchrun --standalone --nnodes=1 --nproc-per-node=2 -m harness_training.cli"
+post-train-distributed = "torchrun --standalone --nnodes=1 --nproc-per-node=2 -m scripts.post_train"
 test-post-training = "python -m pytest tests/harness_training"
 type-check = "python -m pyright --pythonpath .pixi/envs/default/bin/python"
 debug-audit = "debugpy --listen localhost:12888 --wait-for-client -m harness_training.cli audit"
