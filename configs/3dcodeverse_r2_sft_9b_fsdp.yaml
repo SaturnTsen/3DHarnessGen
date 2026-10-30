@@ -32,16 +32,16 @@ data:
   - ../3dcodeverse/articraft/cadquery_single_tex_4_llamafactory_img/trajectory.jsonl
   - ../3dcodeverse/articraft/cadquery_single_tex_5_llamafactory_img/trajectory.jsonl
   image_root: ..
-  test_fraction: 0.0
+  test_fraction: 0.00
   validation_fraction: 0.007680491551459293
 model:
   # Start a new round from the previous adapter; reset optimizer and scheduler.
-  init_from: /mnt/disk5/bingchen/3DHarnessGen/outputs/post_training/Blender/qwen35_9b_qlora_fsdp_mix_epoch1_v1/checkpoints/checkpoint-1080
+  init_from: /mnt/disk5/bingchen/3DHarnessGen/outputs/post_training/Blender/qwen35_9b_qlora_fsdp_mix_epoch1_v1/checkpoints/checkpoint-1612
 method:
   long_context: null
   batch_size: 1
   dataloader_workers: 0
-  epochs: 2.0
+  epochs: 1.0
   eval_steps: 10
   gradient_accumulation_steps: 8
   gradient_checkpointing: true

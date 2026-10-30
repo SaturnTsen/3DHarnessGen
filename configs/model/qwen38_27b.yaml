@@ -2,4 +2,4 @@ defaults:
   - qwen
   - _self_
 path: ~/models/Qwen3.8-27B
-max_length: 49152
+max_length: 147456

@@ -1,0 +1,66 @@
+# R2: cumulative full-data replay; no source resampling.
+# Inherit common configuration groups only; never inherit another task entrypoint.
+defaults:
+- data: trajectory
+- template: qwen
+- model: qwen35_9b
+- method: sft
+- scene: multi_view
+- tuning: lora
+- quantization: 4bit
+- distributed: fsdp
+- tracking: wandb
+- _self_
+schema_version: 1
+experiment:
+  name: 3dcodeverse_cadquery_sft_qwen35_9b_qlora_fsdp
+  output_dir: ../outputs/post_training/3DCodeVerse/cadquery_qwen35_9b_qlora_fsdp_epoch2_v1
+data:
+  accepted_statuses:
+  - OK
+  - UNKNOWN
+  files:
+  - ../3dcodeverse/deepcad/v1_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/deepcad/v1_1_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/deepcad/v1_2_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/deepcad/v1_3_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/deepcad/v1_4_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/articraft/cadquery_single_tex_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/articraft/cadquery_single_tex_1_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/articraft/cadquery_single_tex_2_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/articraft/cadquery_single_tex_3_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/articraft/cadquery_single_tex_4_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/articraft/cadquery_single_tex_5_llamafactory_img/trajectory.jsonl
+  image_root: ..
+  test_fraction: 0.00
+  validation_fraction: 0.007680491551459293
+method:
+  long_context: null
+  batch_size: 1
+  dataloader_workers: 0
+  epochs: 1.0
+  eval_steps: 10
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  learning_rate: 2.0e-05
+  logging_steps: 1
+  max_steps: -1
+  name: sft
+  resume_from: null
+  save_steps: 20
+  save_total_limit: 2
+  use_cpu: false
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  backend:
+    loss_type: chunked_nll
+    prediction_loss_only: true
+    skip_memory_metrics: false
+tracking:
+  group: 3DCodeVerse
+  tags:
+  - 3DCodeVerse
+  - cadquery
+  - mix
+  - lora
+  - fsdp
