@@ -157,7 +157,7 @@ class Trainer:
         if resume_from is not None:
             if int(os.environ.get("RANK", "0")) == 0:
                 print("[resume] 提前检查 checkpoint、配置、版本、源文件和 W&B 身份；不加载 Processor。", flush=True)
-            prior, progress, resume_report = check_resume(self.config, world_size)
+            prior, progress, resume_report = check_resume(self.config, world_size, workers=PreflightWorkers(label="resume"))
             cast(SFTMethod, self.method).resume_progress = progress
         preflight_log("检查训练运行环境和优化内核。")
         self.model.validate_runtime()

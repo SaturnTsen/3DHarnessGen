@@ -36,9 +36,10 @@ class PreflightWorkers:
     Each launch/restart gets its own namespace; no shared scratch files or stale ranks.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, label: Literal["preflight", "resume"] = "preflight") -> None:
         self.rank = int(os.environ.get("RANK", "0"))
         self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        self.label = label
         self.timeout = timedelta(hours=2)
         self.store = None
         if self.world_size > 1:
@@ -77,6 +78,10 @@ class PreflightWorkers:
     def progress(self, phase: str, total: int) -> PreparationProgress:
         return PreparationProgress(self, phase, total)
 
+    def log(self, message: str) -> None:
+        if self.rank == 0:
+            print(f"[{self.label}] {message}", flush=True)
+
 
 class PreparationProgress(AbstractContextManager[Callable[[], None]]):
     """Publish global counters even while rank zero waits for a slower worker."""
@@ -91,7 +96,7 @@ class PreparationProgress(AbstractContextManager[Callable[[], None]]):
 
     def __enter__(self) -> Callable[[], None]:
         self.publish()
-        preflight_log(f"{self.phase}：0/{self.total}；{self.workers.world_size} 个进程分摊。")
+        self.workers.log(f"{self.phase}：0/{self.total}；{self.workers.world_size} 个进程分摊。")
         if self.workers.rank == 0:
             self.thread = Thread(target=self.monitor, daemon=True)
             self.thread.start()
@@ -115,7 +120,7 @@ class PreparationProgress(AbstractContextManager[Callable[[], None]]):
             completed = sum(int(self.workers.store.get(key)) for key in keys if self.workers.store.check([key]))
         elapsed = time.monotonic() - self.started
         percentage = 100 * completed / self.total if self.total else 100
-        preflight_log(f"{self.phase}：{completed}/{self.total} ({percentage:.1f}%)，耗时 {elapsed:.1f} 秒。")
+        self.workers.log(f"{self.phase}：{completed}/{self.total} ({percentage:.1f}%)，耗时 {elapsed:.1f} 秒。")
 
     def monitor(self) -> None:
         while not self.stopped.wait(20):

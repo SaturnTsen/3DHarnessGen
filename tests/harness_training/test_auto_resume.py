@@ -109,7 +109,7 @@ def test_auto_resume_small_model_preserves_training_and_wandb_state(config, tiny
     path = tmp_path / "config.yaml"
     save_config(config, path)
     command = [sys.executable, "-m", "scripts.post_train", "train", "--config", str(path)]
-    environment = {**os.environ, "OMP_NUM_THREADS": "2", "TOKENIZERS_PARALLELISM": "false"}
+    environment = {**os.environ, "OMP_NUM_THREADS": "2", "TOKENIZERS_PARALLELISM": "false", "CUDA_VISIBLE_DEVICES": ""}
 
     def run(arguments):
         result = subprocess.run(command + arguments, cwd=ROOT, env=environment,

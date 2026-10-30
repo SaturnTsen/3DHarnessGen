@@ -15,6 +15,7 @@ from .manifest import (
     ResumeMismatch, backend_versions, code_identity, config_identity, differences, saved_source_inventory,
 )
 from .tracking import WandbRunState
+from .preflight import PreflightWorkers
 
 
 def write_resume_report(report: dict) -> Path:
@@ -27,11 +28,20 @@ def write_resume_report(report: dict) -> Path:
     return path
 
 
-def check_resume(config: TrainingConfig, world_size: int) -> tuple[dict, DataProgress | None, dict]:
+def resume_stage(report: dict, stage: str, message: str, workers: PreflightWorkers | None) -> None:
+    report["stage"] = stage
+    write_resume_report(report)
+    if workers is not None:
+        workers.log(message)
+
+
+def check_resume(config: TrainingConfig, world_size: int, *,
+                 workers: PreflightWorkers | None = None) -> tuple[dict, DataProgress | None, dict]:
     checkpoint = config.method.resume_from
     report = {"status": "checking", "checkpoint": str(checkpoint), "world_size": world_size,
               "processor_loaded": False, "weights_loaded": False, "wandb_connected": False}
     try:
+        resume_stage(report, "checkpoint_config", "校验 checkpoint、配置、后端版本及代码。", workers)
         if checkpoint is None:
             raise ValueError("check-resume requires method.resume_from (a checkpoint path or auto)")
         if (world_size == 1) != (config.distributed.strategy == "single"):
@@ -49,9 +59,7 @@ def check_resume(config: TrainingConfig, world_size: int) -> tuple[dict, DataPro
                    "targets": prior["targets"], "sources": prior["sources"]}
         # Catch cheap version/configuration/code errors before hashing any large input files.
         validate_compatibility(prior, current, config)
-        dataset = TrajectoryDataset(config.data, config.experiment.scene, config.experiment.seed)
-        current["sources"] = saved_source_inventory(prior, dataset.input_paths(), config)
-        validate_compatibility(prior, current, config)
+        resume_stage(report, "training_state", "校验全局 batch、数据位置及本地 W&B 身份。", workers)
         progress = load_progress(checkpoint, prior, config, world_size) if config.method.resume_policy == "elastic" else None
         if config.tracking.mode != "disabled":
             saved = WandbRunState.model_validate_json((config.experiment.output_dir / "wandb_run.json").read_text())
@@ -63,6 +71,10 @@ def check_resume(config: TrainingConfig, world_size: int) -> tuple[dict, DataPro
             if details:
                 raise ResumeMismatch(details)
             report["wandb_run_id"] = saved.id
+        resume_stage(report, "source_files", "静态条件通过，开始核对源文件；尚未加载 Processor 和模型权重。", workers)
+        dataset = TrajectoryDataset(config.data, config.experiment.scene, config.experiment.seed)
+        current["sources"] = saved_source_inventory(prior, dataset.input_paths(), config, workers=workers)
+        validate_compatibility(prior, current, config)
         report.update({"status": "passed", "checked_sources": len(current["sources"]),
                        "sample_counts": {split: len(ids) for split, ids in prior["targets"].items()},
                        "sample_selection": "checkpoint targets, original order",
@@ -74,6 +86,7 @@ def check_resume(config: TrainingConfig, world_size: int) -> tuple[dict, DataPro
             report["data_position"] = {"global_step": progress.global_step, "epoch": progress.epoch,
                                        "next_sample": progress.next_sample, "source_world_size": progress.world_size,
                                        "global_batch_size": progress.global_batch_size}
+        resume_stage(report, "complete", f"恢复检查通过：{len(current['sources'])} 个源文件已核对。", workers)
     except (ValueError, OSError) as exc:
         report.update({"status": "failed", "error": str(exc)})
         if isinstance(exc, ResumeMismatch):

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from harness_training.config import TrainingConfig
+from harness_training.data.base import PreparationWorkers, SerialPreparationWorkers
 
 
 def config_identity(config: TrainingConfig) -> dict:
@@ -56,7 +57,8 @@ def hash_source(path: Path) -> str:
     return hash_file(path)
 
 
-def saved_source_inventory(prior: dict, data_paths: list[Path], config: TrainingConfig) -> dict[str, str]:
+def saved_source_inventory(prior: dict, data_paths: list[Path], config: TrainingConfig,
+                           *, workers: PreparationWorkers | None = None) -> dict[str, str]:
     """Rehash saved images plus today's selected trajectories and model metadata."""
     old_model = prior["config"]["model"]
     old_root = Path(old_model["path"])
@@ -71,8 +73,27 @@ def saved_source_inventory(prior: dict, data_paths: list[Path], config: Training
             path.is_relative_to(old_init) or path == old_init.parent.parent / "resolved_config.yaml"))
         if name not in old_data and not model_file:
             images.append(path)
-    paths = set(images + data_paths + model_sources(config))
-    return {str(path): hash_source(path) if path.is_file() else "<missing>" for path in sorted(paths)}
+    paths = sorted(set(images + data_paths + model_sources(config)))
+    workers = workers if workers is not None else SerialPreparationWorkers()
+    with workers.progress("核对恢复源文件摘要", len(paths)) as advance:
+        local: dict[str, str] = {}
+        errors: dict[str, str] = {}
+        for path in paths[workers.rank::workers.world_size]:
+            try:
+                local[str(path)] = hash_source(path) if path.is_file() else "<missing>"
+            except OSError as exc:
+                errors[str(path)] = str(exc)
+            advance()
+        shards = workers.gather("resume_sources", (local, errors))
+    sources = {}
+    failures = {}
+    for selected, failed in shards:
+        sources.update(selected)
+        failures.update(failed)
+    if failures:
+        path = sorted(failures)[0]
+        raise OSError(f"Resume source check failed for {path}: {failures[path]}")
+    return sources
 
 
 def differences(previous: Any, current: Any, prefix: str) -> list[dict]:

@@ -86,7 +86,7 @@ def run_training(config, path, world, overrides=()):
     env = {**os.environ, "OMP_NUM_THREADS": "2", "TOKENIZERS_PARALLELISM": "false",
            "CUBLAS_WORKSPACE_CONFIG": ":16:8", "PYTORCH_ALLOC_CONF": "expandable_segments:True"}
     if world == 1:
-        env["CUDA_VISIBLE_DEVICES"] = "0"
+        env["CUDA_VISIBLE_DEVICES"] = "" if config.method.use_cpu else "0"
     result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=240)
     (path.with_suffix(".log")).write_text(result.stdout + result.stderr)
     assert result.returncode == 0, (result.stdout + result.stderr)[-20000:]
