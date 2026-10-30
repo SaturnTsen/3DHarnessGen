@@ -3,11 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import time
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal, cast, TYPE_CHECKING
+from typing import Literal, cast
 
 from harness_training.types import (
     AuditReport, DataReport, JsonObject, JsonValue, Manifest, ManifestPayload, Metrics, PreviewItem,
@@ -18,16 +17,14 @@ from harness_training.data.base import BaseDataset, DatasetBundle
 from harness_training.data.trajectory import TrajectoryDataset
 from harness_training.models.base import BaseModel
 from harness_training.models.qwen import QwenModel
-from harness_training.templates.base import BaseTemplate, SampleTooLong, TemplateError
+from harness_training.templates.base import BaseTemplate, TemplateError
 from harness_training.templates.qwen import QwenTemplate
 from harness_training.training.methods.base import BaseTrainingMethod
 from harness_training.training.methods.sft import SFTMethod
 from harness_training.training.tracking import tracking_session, record_resume_transition
 from .manifest import backend_versions, code_identity, config_identity, hash_file, model_sources, hash_source
 from .resume import check_resume, verify_encoded_manifest
-
-if TYPE_CHECKING:
-    from harness_training.data.base import TrainingExample
+from .preflight import preflight_log, validate_encoding
 
 
 def write_json(path: Path, value: Mapping[str, JsonValue] | DataReport | Manifest | Metrics) -> None:
@@ -35,11 +32,6 @@ def write_json(path: Path, value: Mapping[str, JsonValue] | DataReport | Manifes
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(dict(value), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
-
-
-def preflight_log(message: str) -> None:
-    if int(os.environ.get("RANK", "0")) == 0:
-        print(f"[preflight] {message}", flush=True)
 
 
 class Trainer:
@@ -93,29 +85,7 @@ class Trainer:
                 setattr(data, split, examples)
         if encode:
             preflight_log(f"数据检查完成：{data.report()['samples']}，拒绝记录 {len(data.rejected)} 条。")
-            shown_errors = 0
-            for split in ("train", "validation", "test"):
-                accepted: list[TrainingExample] = []
-                examples = data.examples(split)
-                preflight_log(f"开始编码 {split}：{len(examples)} 条。")
-                last_log = time.monotonic()
-                for index, example in enumerate(examples, 1):
-                    try:
-                        self.template.encode(example)
-                    except (TemplateError, OSError, ValueError) as exc:
-                        data.rejected.append({"id": example.id, "path": str(example.record.path),
-                                              "reason": str(exc), "stage": "encoding",
-                                              "too_long": isinstance(exc, SampleTooLong)})
-                        if not isinstance(exc, SampleTooLong) and shown_errors < 3:
-                            preflight_log(f"编码失败示例 {example.id}：{str(exc)[:500]}")
-                            shown_errors += 1
-                    else:
-                        accepted.append(example)
-                    if index == len(examples) or time.monotonic() - last_log >= 20:
-                        preflight_log(f"{split} 编码 {index}/{len(examples)}，保留 {len(accepted)}，"
-                                      f"拒绝 {index - len(accepted)}。")
-                        last_log = time.monotonic()
-                setattr(data, split, accepted)
+            validate_encoding(self.config, data, lambda: self.template)
         return data
 
     def audit(self) -> AuditReport:
@@ -146,9 +116,11 @@ class Trainer:
         images = {path for split in (data.train, data.validation, data.test) for example in split
                   for index in example.indices for path in example.record.images_by_message[index]}
         for path in sorted(images):
-            sources[str(path)] = hash_file(path)
+            if str(path) not in sources:
+                sources[str(path)] = hash_file(path)
         for path in model_sources(self.config):
-            sources[str(path)] = hash_source(path)
+            if str(path) not in sources:
+                sources[str(path)] = hash_source(path)
         payload: ManifestPayload = {
             "config": identity, "sources": sources, "versions": backend_versions(), "code": code_identity(),
             "targets": {split: [e.id for e in data.examples(split)] for split in ("train", "validation", "test")},
