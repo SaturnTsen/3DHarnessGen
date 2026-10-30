@@ -51,7 +51,9 @@ class SFTMethod(BaseTrainingMethod):
             output_dir: Path, resume_from: Path | None) -> Metrics:
         from datasets import Dataset
         from trl import SFTTrainer
-        from transformers import set_seed
+        from transformers import ProgressCallback, set_seed
+
+        from harness_training.training.progress import ResumeProgressCallback
 
         if not data.train:
             raise ValueError("No usable training samples")
@@ -86,6 +88,9 @@ class SFTMethod(BaseTrainingMethod):
             **cfg.trainer.model_dump(),
             **elastic_options,
         )
+        if not args.disable_tqdm:
+            backend.remove_callback(ProgressCallback)
+            backend.add_callback(ResumeProgressCallback)
         result = backend.train(resume_from_checkpoint=str(resume_from) if resume_from else None)
         metrics: Metrics = dict(result.metrics)
         if cfg.backend.do_eval:
