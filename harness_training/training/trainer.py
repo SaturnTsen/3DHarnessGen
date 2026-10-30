@@ -24,7 +24,7 @@ from harness_training.training.methods.sft import SFTMethod
 from harness_training.training.tracking import tracking_session, record_resume_transition
 from .manifest import backend_versions, code_identity, config_identity, hash_file, model_sources, hash_source
 from .resume import check_resume, verify_encoded_manifest
-from .preflight import preflight_log, validate_encoding
+from .preflight import PreflightWorkers, preflight_log, validate_encoding
 
 
 def write_json(path: Path, value: Mapping[str, JsonValue] | DataReport | Manifest | Metrics) -> None:
@@ -64,7 +64,7 @@ class Trainer:
     def prepare(self, *, encode: bool = False, resume_targets: dict | None = None) -> DatasetBundle:
         if encode:
             preflight_log("开始读取轨迹、校验格式和检查图片；尚未加载模型权重。")
-        data = self.dataset.prepare()
+        data = self.dataset.prepare(workers=PreflightWorkers() if encode else None)
         if resume_targets is not None:
             from .manifest import ResumeMismatch, differences
 

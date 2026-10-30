@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import timedelta
 import hashlib
 import importlib.metadata
 import json
 import os
+import pickle
+from threading import Event, Thread
 import time
+from types import TracebackType
 from typing import Literal
 
 from pydantic import BaseModel
@@ -26,7 +30,7 @@ def preflight_log(message: str) -> None:
 
 
 class PreflightWorkers:
-    """Exchange small JSON results through torchrun's store, without initializing NCCL.
+    """Exchange validated in-memory results without initializing NCCL.
 
     The training backend still owns GPU assignment and process-group initialization.
     Each launch/restart gets its own namespace; no shared scratch files or stale ranks.
@@ -35,23 +39,95 @@ class PreflightWorkers:
     def __init__(self) -> None:
         self.rank = int(os.environ.get("RANK", "0"))
         self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        self.timeout = timedelta(hours=2)
         self.store = None
         if self.world_size > 1:
             # These are public PyTorch APIs, omitted from its explicit type exports.
             from torch.distributed import PrefixStore, TCPStore  # pyright: ignore[reportPrivateImportUsage]
 
             store = TCPStore(os.environ["MASTER_ADDR"], int(os.environ["MASTER_PORT"]),
-                             is_master=False, timeout=timedelta(hours=2))
+                             is_master=False, timeout=self.timeout)
             namespace = f"training-preflight/{os.environ['TORCHELASTIC_RUN_ID']}/{os.environ.get('TORCHELASTIC_RESTART_COUNT', '0')}/"
             calls = PrefixStore(namespace, store)
             sequence = calls.add(f"calls/{self.rank}", 1)
             self.store = PrefixStore(f"call-{sequence}/", calls)
 
-    def gather(self, phase: str, value: dict) -> list[dict]:
+    def gather[T](self, phase: str, value: T) -> list[T]:
         if self.store is None:
             return [value]
-        self.store.set(f"{phase}/{self.rank}", json.dumps(value))
-        return [json.loads(self.store.get(f"{phase}/{rank}")) for rank in range(self.world_size)]
+        # Only objects created by this launch are exchanged. No dataset/checkpoint
+        # pickle files are read, and no conversations are written to disk.
+        self.store.set(f"{phase}/{self.rank}", pickle.dumps(value, protocol=5))  # pyright: ignore[reportArgumentType]
+        keys = [f"{phase}/{rank}" for rank in range(self.world_size)]
+        # A blocking Store.get can hold Python's GIL and prevent the progress
+        # thread from reporting. Poll availability before reading ready payloads.
+        deadline = time.monotonic() + self.timeout.total_seconds()
+        while not self.store.check(keys):
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Preflight timed out waiting for workers during {phase}")
+            time.sleep(.1)
+        results = [pickle.loads(self.store.get(key)) for key in keys]
+        # The final reader releases the shared payload after every rank has its
+        # own records. Keep large trajectories out of the rendezvous store during training.
+        if self.store.add(f"{phase}/readers", 1) == self.world_size:
+            for key in keys:
+                self.store.delete_key(key)
+        return results
+
+    def progress(self, phase: str, total: int) -> PreparationProgress:
+        return PreparationProgress(self, phase, total)
+
+
+class PreparationProgress(AbstractContextManager[Callable[[], None]]):
+    """Publish global counters even while rank zero waits for a slower worker."""
+
+    def __init__(self, workers: PreflightWorkers, phase: str, total: int):
+        self.workers, self.phase, self.total = workers, phase, total
+        self.completed = 0
+        self.started = time.monotonic()
+        self.published = self.started
+        self.stopped = Event()
+        self.thread: Thread | None = None
+
+    def __enter__(self) -> Callable[[], None]:
+        self.publish()
+        preflight_log(f"{self.phase}：0/{self.total}；{self.workers.world_size} 个进程分摊。")
+        if self.workers.rank == 0:
+            self.thread = Thread(target=self.monitor, daemon=True)
+            self.thread.start()
+        return self.advance
+
+    def advance(self) -> None:
+        self.completed += 1
+        assigned = len(range(self.workers.rank, self.total, self.workers.world_size))
+        if self.completed == assigned or time.monotonic() - self.published >= 1:
+            self.publish()
+
+    def publish(self) -> None:
+        if self.workers.store is not None:
+            self.workers.store.set(f"progress/{self.phase}/{self.workers.rank}", str(self.completed))
+        self.published = time.monotonic()
+
+    def log(self) -> None:
+        completed = self.completed
+        if self.workers.store is not None:
+            keys = [f"progress/{self.phase}/{rank}" for rank in range(self.workers.world_size)]
+            completed = sum(int(self.workers.store.get(key)) for key in keys if self.workers.store.check([key]))
+        elapsed = time.monotonic() - self.started
+        percentage = 100 * completed / self.total if self.total else 100
+        preflight_log(f"{self.phase}：{completed}/{self.total} ({percentage:.1f}%)，耗时 {elapsed:.1f} 秒。")
+
+    def monitor(self) -> None:
+        while not self.stopped.wait(20):
+            self.log()
+
+    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None,
+                 traceback: TracebackType | None) -> None:
+        self.publish()
+        self.stopped.set()
+        if self.thread is not None:
+            self.thread.join()
+            self.log()
 
 
 class ValidationCache(BaseModel):

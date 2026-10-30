@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from harness_training.types import DataReport, Rejection
 from .contract import Trajectory
 
@@ -59,7 +61,28 @@ class DatasetBundle:
         }
 
 
+class PreparationWorkers(Protocol):
+    rank: int
+    world_size: int
+
+    def gather[T](self, phase: str, value: T) -> list[T]: ...
+
+    def progress(self, phase: str, total: int) -> AbstractContextManager[Callable[[], None]]: ...
+
+
+class SerialPreparationWorkers:
+    def __init__(self) -> None:
+        self.rank = 0
+        self.world_size = 1
+
+    def gather[T](self, phase: str, value: T) -> list[T]:
+        return [value]
+
+    def progress(self, phase: str, total: int) -> AbstractContextManager[Callable[[], None]]:
+        return nullcontext(lambda: None)
+
+
 class BaseDataset(ABC):
     @abstractmethod
-    def prepare(self) -> DatasetBundle:
+    def prepare(self, *, workers: PreparationWorkers | None = None) -> DatasetBundle:
         """Read existing records and select training targets in memory."""

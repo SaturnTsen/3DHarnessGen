@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import dataclass
 from pathlib import Path
 from random import Random
 from typing import Literal
 
 from harness_training.config import DataConfig, Scene
 from .contract import ImageBlock, Message, Trajectory, validate_record
-from .base import BaseDataset, DatasetBundle, TrainingExample, TrajectoryRecord
+from harness_training.types import Rejection
+from .base import BaseDataset, DatasetBundle, PreparationWorkers, SerialPreparationWorkers, TrainingExample, TrajectoryRecord
 
 
 class DataError(ValueError):
     pass
+
+
+@dataclass
+class FileRecords:
+    index: int
+    path: Path
+    sha256: str
+    entries: list[TrajectoryRecord | Rejection]
 
 
 def validate_image(path: Path, decode: bool) -> str | None:
@@ -36,15 +46,65 @@ class TrajectoryDataset(BaseDataset):
         self.scenes = [scene] if isinstance(scene, str) else scene
         self._image_errors: dict[Path, str | None] = {}
 
-    def prepare(self) -> DatasetBundle:
+    def prepare(self, *, workers: PreparationWorkers | None = None) -> DatasetBundle:
         self._image_errors.clear()
-        if self.config.files is not None:
-            return self._prepare_files(self.config.files)
-        bundle = DatasetBundle()
+        workers = workers if workers is not None else SerialPreparationWorkers()
         paths = self.input_paths()
-        assignments = self._split_objects(paths)
-        for path in paths:
-            self._append_path(bundle, path, assignments)
+        # Only the owning rank reads and validates each source file. Exchange
+        # validated in-memory records, never export another training dataset.
+        with workers.progress("读取和校验轨迹文件", len(paths)) as advance:
+            local = []
+            for index in range(workers.rank, len(paths), workers.world_size):
+                local.append(self._read_path(index, paths[index]))
+                advance()
+            files = sorted((item for shard in workers.gather("records", local) for item in shard),
+                           key=lambda item: item.index)
+        bundle = DatasetBundle()
+        entries: list[TrajectoryRecord | Rejection] = []
+        sessions = set()
+        for file in files:
+            bundle.source_hashes[str(file.path)] = file.sha256
+            for entry in file.entries:
+                if isinstance(entry, TrajectoryRecord):
+                    key = ((entry.row.metadata.scene, entry.instance, entry.row.metadata.session_id)
+                           if self.config.files is not None else (file.index, entry.row.metadata.session_id))
+                    if key in sessions:
+                        entries.append({"path": str(entry.path), "line": entry.line,
+                                        "reason": "Duplicate session_id within object"})
+                        continue
+                    sessions.add(key)
+                entries.append(entry)
+        records = [entry for entry in entries if isinstance(entry, TrajectoryRecord)]
+        assignments = (self._split_instances(sorted({record.instance for record in records}))
+                       if self.config.files is not None else self._split_objects(paths))
+        bundle.assignments.update(assignments)
+        selections = {(record.path, record.line): self._select(record) for record in records}
+        images = sorted({path for examples in selections.values() for example in examples
+                         for index in example.indices for path in example.record.images_by_message[index]})
+        with workers.progress("检查去重后的图片", len(images)) as advance:
+            local_errors = {}
+            for path in images[workers.rank::workers.world_size]:
+                local_errors[path] = self._check_image(path)
+                advance()
+            for shard in workers.gather("image_checks", local_errors):
+                self._image_errors.update(shard)
+        # Explicit file input historically reports all parse failures before
+        # sample failures; directory input reports them in source/line order.
+        if self.config.files is not None:
+            bundle.rejected.extend(entry for entry in entries if not isinstance(entry, TrajectoryRecord))
+        for entry in entries:
+            if not isinstance(entry, TrajectoryRecord):
+                if self.config.files is None:
+                    bundle.rejected.append(entry)
+                continue
+            for example in selections[(entry.path, entry.line)]:
+                errors = self._example_errors(example)
+                if errors:
+                    if self.config.missing_images == "error":
+                        raise DataError(f"{example.id}: {'; '.join(errors)}")
+                    bundle.rejected.append({"id": example.id, "path": str(entry.path), "reason": "; ".join(errors)})
+                else:
+                    bundle.examples(assignments[entry.instance]).append(example)
         return bundle
 
     def input_paths(self) -> list[Path]:
@@ -64,36 +124,26 @@ class TrajectoryDataset(BaseDataset):
             paths.extend(selected)
         return paths
 
-    def _append_path(self, bundle: DatasetBundle, path: Path, assignments: dict) -> None:
-        sessions: set[str] = set()
-        instance = path.parent.parent.name
-        split = assignments[instance]
-        bundle.assignments[instance] = split
+    def _read_path(self, index: int, path: Path) -> FileRecords:
         payload = path.read_bytes()
-        bundle.source_hashes[str(path)] = hashlib.sha256(payload).hexdigest()
+        result = FileRecords(index, path, hashlib.sha256(payload).hexdigest(), [])
         if not payload:
-            bundle.rejected.append({"path": str(path), "reason": "Empty trajectory file"})
+            result.entries.append({"path": str(path), "reason": "Empty trajectory file"})
         for line_number, line in enumerate(payload.decode("utf-8").splitlines(), 1):
             try:
-                row = validate_record(line)
-                if row.metadata.scene != path.parents[3].name:
+                row = validate_record(line, explicit_image_root=self.config.files is not None and self.config.image_root is not None)
+                if self.config.files is None and row.metadata.scene != path.parents[3].name:
                     raise DataError("Scene metadata does not match input path")
+                instance = row.metadata.instance if self.config.files is not None else path.parent.parent.name
                 record = self._read_record(path, line_number, instance, row)
-                if record.row.metadata.session_id in sessions:
-                    raise DataError("Duplicate session_id within object")
-                sessions.add(record.row.metadata.session_id)
-                examples = self._select(record)
             except ValueError as exc:
-                bundle.rejected.append({"path": str(path), "line": line_number, "reason": str(exc)})
-                continue
-            for example in examples:
-                errors = self._example_errors(example)
-                if errors:
-                    if self.config.missing_images == "error":
-                        raise DataError(f"{example.id}: {'; '.join(errors)}")
-                    bundle.rejected.append({"id": example.id, "path": str(path), "reason": "; ".join(errors)})
-                else:
-                    bundle.examples(split).append(example)
+                result.entries.append({"path": str(path), "line": line_number, "reason": str(exc)})
+            else:
+                result.entries.append(record)
+        return result
+
+    def _check_image(self, path: Path) -> str | None:
+        return validate_image(path, self.config.verify_images)
 
     def _split_objects(self, paths: list[Path]) -> dict[str, Literal["train", "validation", "test"]]:
         return self._split_instances(sorted({path.parent.parent.name for path in paths}))
@@ -110,39 +160,6 @@ class TrajectoryDataset(BaseDataset):
         assignments.update({instance: "validation" for instance in shuffled[test_end:validation_end]})
         assignments.update({instance: "test" for instance in shuffled[:test_end]})
         return assignments
-
-    def _prepare_files(self, paths: list[Path]) -> DatasetBundle:
-        bundle = DatasetBundle()
-        records: list[TrajectoryRecord] = []
-        sessions: set[tuple[str, str, str]] = set()
-        for path in paths:
-            payload = path.read_bytes()
-            bundle.source_hashes[str(path)] = hashlib.sha256(payload).hexdigest()
-            if not payload:
-                bundle.rejected.append({"path": str(path), "reason": "Empty trajectory file"})
-            for line_number, line in enumerate(payload.decode("utf-8").splitlines(), 1):
-                try:
-                    row = validate_record(line, explicit_image_root=self.config.image_root is not None)
-                    record = self._read_record(path, line_number, row.metadata.instance, row)
-                    session = (row.metadata.scene, record.instance, row.metadata.session_id)
-                    if session in sessions:
-                        raise DataError("Duplicate session_id within object")
-                    sessions.add(session)
-                    records.append(record)
-                except ValueError as exc:
-                    bundle.rejected.append({"path": str(path), "line": line_number, "reason": str(exc)})
-        assignments = self._split_instances(sorted({record.instance for record in records}))
-        bundle.assignments.update(assignments)
-        for record in records:
-            for example in self._select(record):
-                errors = self._example_errors(example)
-                if errors:
-                    if self.config.missing_images == "error":
-                        raise DataError(f"{example.id}: {'; '.join(errors)}")
-                    bundle.rejected.append({"id": example.id, "path": str(record.path), "reason": "; ".join(errors)})
-                else:
-                    bundle.examples(assignments[record.instance]).append(example)
-        return bundle
 
     def _read_record(self, path: Path, line: int, instance: str, row: Trajectory) -> TrajectoryRecord:
         if row.metadata.scene not in self.scenes or row.metadata.instance != instance:
@@ -166,8 +183,6 @@ class TrajectoryDataset(BaseDataset):
         errors: list[str] = []
         for index in example.indices:
             for path in example.record.images_by_message[index]:
-                if path not in self._image_errors:
-                    self._image_errors[path] = validate_image(path, self.config.verify_images)
                 error = self._image_errors[path]
                 if error is not None:
                     errors.append(error)
