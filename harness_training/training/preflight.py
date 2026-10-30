@@ -36,6 +36,8 @@ class PreflightWorkers:
     Each launch/restart gets its own namespace; no shared scratch files or stale ranks.
     """
 
+    chunk_bytes = 4 * 1024 * 1024
+
     def __init__(self, label: Literal["preflight", "resume"] = "preflight") -> None:
         self.rank = int(os.environ.get("RANK", "0"))
         self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
@@ -58,8 +60,15 @@ class PreflightWorkers:
             return [value]
         # Only objects created by this launch are exchanged. No dataset/checkpoint
         # pickle files are read, and no conversations are written to disk.
-        self.store.set(f"{phase}/{self.rank}", pickle.dumps(value, protocol=5))  # pyright: ignore[reportArgumentType]
-        keys = [f"{phase}/{rank}" for rank in range(self.world_size)]
+        payload = pickle.dumps(value, protocol=5)
+        prefix = f"{phase}/{self.rank}"
+        # libuv TCPStore limits individual payloads to 8 MiB. Trajectory shards
+        # can exceed 150 MiB, so keep every write/read comfortably below it.
+        for index, start in enumerate(range(0, len(payload), self.chunk_bytes)):
+            self.store.set(f"{prefix}/chunk/{index}", payload[start:start + self.chunk_bytes])  # pyright: ignore[reportArgumentType]
+        self.store.set(f"{prefix}/size", str(len(payload)))
+        del payload
+        keys = [f"{phase}/{rank}/size" for rank in range(self.world_size)]
         # A blocking Store.get can hold Python's GIL and prevent the progress
         # thread from reporting. Poll availability before reading ready payloads.
         deadline = time.monotonic() + self.timeout.total_seconds()
@@ -67,12 +76,23 @@ class PreflightWorkers:
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"Preflight timed out waiting for workers during {phase}")
             time.sleep(.1)
-        results = [pickle.loads(self.store.get(key)) for key in keys]
-        # The final reader releases the shared payload after every rank has its
-        # own records. Keep large trajectories out of the rendezvous store during training.
-        if self.store.add(f"{phase}/readers", 1) == self.world_size:
-            for key in keys:
-                self.store.delete_key(key)
+        sizes = [int(self.store.get(key)) for key in keys]
+        if sum(sizes) > self.chunk_bytes:
+            self.log(f"分块汇总 {phase}：{sum(sizes) / 1024**2:.1f} MiB，单块最多 4 MiB。")
+        results = []
+        for rank, size in enumerate(sizes):
+            prefix = f"{phase}/{rank}"
+            chunks = [f"{prefix}/chunk/{index}" for index, _ in enumerate(range(0, size, self.chunk_bytes))]
+            buffer = bytearray()
+            for key in chunks:
+                buffer.extend(self.store.get(key))
+            results.append(pickle.loads(buffer))
+            del buffer
+            # Release each sender's data after all ranks have read it, rather
+            # than retaining all serialized trajectories until the end.
+            if self.store.add(f"{prefix}/readers", 1) == self.world_size:
+                for key in [*chunks, f"{prefix}/size"]:
+                    self.store.delete_key(key)
         return results
 
     def progress(self, phase: str, total: int) -> PreparationProgress:
@@ -128,11 +148,15 @@ class PreparationProgress(AbstractContextManager[Callable[[], None]]):
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None,
                  traceback: TracebackType | None) -> None:
-        self.publish()
         self.stopped.set()
         if self.thread is not None:
             self.thread.join()
-            self.log()
+        # A failed transport may already be closed. Do not replace the original
+        # exception with another network error while stopping the progress UI.
+        if exc_type is None:
+            self.publish()
+            if self.thread is not None:
+                self.log()
 
 
 class ValidationCache(BaseModel):
