@@ -1,0 +1,96 @@
+# 3DCodeVerse first-SFT core recipe, using the existing image-to-code pairs.
+# Reference: https://github.com/gaoypeng/3dcodeverse/blob/main/finetune/docs/REPORT_FULL.md
+# Compatibility differences: no packing or truncation; SDPA instead of FA2.
+defaults:
+- data: trajectory
+- template: qwen
+- model: qwen35_9b
+- method: sft
+- scene: multi_view
+- tuning: lora
+- quantization: none
+- distributed: ddp
+- tracking: wandb
+- _self_
+schema_version: 1
+experiment:
+  name: sft_blender_all_qwen35_9b_lora_ddp_new
+  output_dir: ../outputs/post_training/Blender/qwen35_9b_lora_ddp_all_epoch2_v1
+data:
+  accepted_statuses:
+  - OK
+  - UNKNOWN
+  files:
+  - ../3dcodeverse/bioinspired3d/bpy_structures_geo_llamafactory_img/trajectory.jsonl
+  - ../3dcodeverse/3dcodebench/instances_geo_llamafactory_img/trajectory.jsonl
+  image_root: ..
+  test_fraction: 0.0
+  validation_fraction: 0.007680491551459293
+model:
+  init_from: null
+  max_length: 8192
+  attention_implementation: sdpa
+  freeze_vision: true
+  lora:
+    rank: 64
+    alpha: 128
+    dropout: 0.05
+    # All language-model Linear projections in the actual qwen3_5 architecture.
+    # Conv1d, embeddings, normalization, vision and the output head are excluded.
+    target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - in_proj_qkv
+    - in_proj_z
+    - in_proj_b
+    - in_proj_a
+    - out_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+method:
+  long_context: null
+  name: sft
+  batch_size: 1
+  gradient_accumulation_steps: 6
+  gradient_checkpointing: true
+  learning_rate: 1.0e-04
+  epochs: 2.0
+  max_steps: -1
+  warmup_ratio: 0.05
+  weight_decay: 0.0
+  resume_from: null
+  resume_policy: strict
+  logging_steps: 5
+  save_steps: 20
+  eval_steps: 20
+  save_total_limit: 4
+  dataloader_workers: 0
+  use_cpu: false
+  backend:
+    optim: adamw_torch
+    lr_scheduler_type: cosine
+    bf16: true
+    fp16: false
+    loss_type: chunked_nll
+    prediction_loss_only: true
+    # Keep resumable checkpoints and the project's explicit sample labels.
+    save_only_model: false
+    packing: false
+    eval_packing: false
+    dataloader_pin_memory: false
+    skip_memory_metrics: false
+tracking:
+  group: Blender
+  tags:
+  - Blender
+  - all
+  - image-to-code
+  - qwen35
+  - 9b
+  - lora
+  - ddp
+  - epoch2
+  - new

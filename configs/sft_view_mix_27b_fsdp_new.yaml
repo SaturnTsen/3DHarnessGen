@@ -1,0 +1,94 @@
+# Published 3DCodeVerse Qwen3.8-27B LoRA hyperparameters, using view trajectories.
+# Reference: https://github.com/gaoypeng/3dcodeverse/blob/main/finetune/docs/RELEASE.md
+# Project settings: no packing/truncation, SDPA, non-quantized BF16 and FSDP.
+# Data, batch size, input budget and checkpoint intervals remain project-specific.
+defaults:
+- data: trajectory
+- template: qwen
+- model: qwen38_27b
+- method: sft
+- scene: single_view
+- tuning: lora
+- quantization: none
+- distributed: fsdp
+- tracking: wandb
+- _self_
+schema_version: 1
+experiment:
+  name: sft_view_mix_qwen38_27b_lora_fsdp_new
+  output_dir: ../outputs/post_training/View-mix/qwen38_27b_lora_fsdp_epoch1_v1
+  scene:
+  - Single-view
+  - Multi-view
+data:
+  accepted_statuses:
+  - OK
+  - UNKNOWN
+model:
+  init_from: null
+  # Project input budget; over-budget trajectories are rejected, not truncated.
+  max_length: 8192
+  attention_implementation: sdpa
+  freeze_vision: true
+  lora:
+    rank: 16
+    alpha: 32
+    dropout: 0.0
+    # All language-model Linear projections in the actual qwen3_5 architecture.
+    # Conv1d, embeddings, normalization, vision and the output head are excluded.
+    target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - in_proj_qkv
+    - in_proj_z
+    - in_proj_b
+    - in_proj_a
+    - out_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+method:
+  long_context: null
+  name: sft
+  batch_size: 1
+  gradient_accumulation_steps: 6
+  gradient_checkpointing: true
+  learning_rate: 1.0e-04
+  epochs: 1.0
+  max_steps: -1
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  resume_from: null
+  resume_policy: strict
+  logging_steps: 5
+  save_steps: 20
+  eval_steps: 20
+  save_total_limit: 4
+  dataloader_workers: 0
+  use_cpu: false
+  backend:
+    optim: adamw_torch
+    lr_scheduler_type: cosine
+    bf16: true
+    fp16: false
+    loss_type: chunked_nll
+    prediction_loss_only: true
+    save_only_model: false
+    packing: false
+    eval_packing: false
+    dataloader_pin_memory: false
+    skip_memory_metrics: false
+tracking:
+  group: View-mix
+  tags:
+  - Single-view
+  - Multi-view
+  - mix
+  - qwen38
+  - 27b
+  - lora
+  - fsdp
+  - epoch1
+  - new
