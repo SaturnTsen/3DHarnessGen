@@ -27,6 +27,8 @@ data:
   image_root: ..
   test_fraction: 0.0
   validation_fraction: 0.007680491551459293
+model:
+  max_length: 120000
 method:
   long_context: null
   batch_size: 1
