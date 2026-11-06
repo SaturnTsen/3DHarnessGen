@@ -31,7 +31,7 @@ method:
     loss_chunk_size: 256
   batch_size: 1
   dataloader_workers: 0
-  epochs: 1.0
+  epochs: 2.0
   eval_steps: 10
   gradient_accumulation_steps: 8
   gradient_checkpointing: true
