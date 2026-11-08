@@ -73,7 +73,7 @@ def test_mix_task_torchrun_training_eval_save_resume(task, devices, hybrid_model
     runs = tmp_path / "runs"
     output = tmp_path / "output"
     write_mix_fixture(runs, task)
-    config = f"configs/sft_{task}_mix_27b_fsdp.yaml"
+    config = f"configs/exp/3DHarnessBench/sft_{task}_mix_27b_fsdp.yaml"
     command = [
         "pixi", "run", "python", "-m", "torch.distributed.run", "--standalone", "--nnodes=1",
         f"--nproc-per-node={devices}", "-m", "harness_training.cli", "train", "--config", config,

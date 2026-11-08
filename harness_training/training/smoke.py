@@ -15,10 +15,10 @@ from harness_training.training.trainer import Trainer
 
 
 CONFIGS = {
-    "Single-view": "sft_single_view.yaml",
-    "Multi-view": "sft_multi_view.yaml",
-    "ActiveVisual": "sft_active_visual.yaml",
-    "Full3DInteraction": "sft_full_3d_interaction.yaml",
+    "Single-view": "exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml",
+    "Multi-view": "exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml",
+    "ActiveVisual": "exp/3DHarnessBench/sft_interaction_mix_9b_fsdp.yaml",
+    "Full3DInteraction": "exp/3DHarnessBench/sft_interaction_mix_9b_fsdp.yaml",
 }
 
 
@@ -52,7 +52,7 @@ def run_smoke(*, scene: str | None, instance: str | None, include_unknown: bool 
         scene_started = time.monotonic()
         folder = output / scene
         folder.mkdir()
-        config = load_config(root / "configs" / CONFIGS[scene])
+        config = load_config(root / "configs" / CONFIGS[scene], [f"experiment.scene={scene}"])
         source = config.data.runs_root / scene / config.data.source_model
         log(f"[{scene}] 读取配置：{root / 'configs' / CONFIGS[scene]}")
         log(f"[{scene}] 查找轨迹：{source}")

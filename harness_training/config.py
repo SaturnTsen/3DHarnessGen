@@ -486,11 +486,17 @@ class TrainingConfig(StrictConfig):
 
 def load_config(path: str | Path, overrides: list[str] | None = None) -> TrainingConfig:
     from hydra import compose, initialize_config_dir
+    from omegaconf import OmegaConf
 
     path = Path(path).expanduser().resolve()
-    with initialize_config_dir(version_base="1.3", config_dir=str(path.parent)):
-        composed = compose(config_name=path.name, overrides=overrides or [])
-    return parse_config(composed, path.parent)
+    directory = Path(__file__).resolve().parents[1] / "configs"
+    if not path.is_relative_to(directory):
+        directory = path.parent
+    # Experiment entries share the config root for composition and relative paths.
+    with initialize_config_dir(version_base="1.3", config_dir=str(directory)):
+        composed = compose(config_name=path.relative_to(directory).as_posix(), overrides=overrides or [])
+    training = OmegaConf.masked_copy(composed, [str(key) for key in composed if key != "command"])
+    return parse_config(training, directory)
 
 
 def parse_config(composed, directory: Path) -> TrainingConfig:

@@ -170,8 +170,8 @@ def test_mix_files_split_by_metadata_object_and_resolve_images(config, tmp_path)
 
 def test_blender_config_sources_paths_and_training_settings(tmp_path):
     root = Path(__file__).resolve().parents[2]
-    config = load_config(root / "configs/sft_blender_9b_fsdp.yaml")
-    baseline = load_config(root / "configs/sft_multi_view_9b_fsdp.yaml")
+    config = load_config(root / "configs/exp/3DCodeVerse/sft_blender_9b_fsdp.yaml")
+    baseline = load_config(root / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml")
     assert config.data.image_root == root
     assert len(config.data.files) == 2
     assert all(path.is_absolute() for path in config.data.files)
@@ -179,6 +179,7 @@ def test_blender_config_sources_paths_and_training_settings(tmp_path):
     assert config.model == baseline.model
     assert config.template == baseline.template
     assert config.method == baseline.method.model_copy(update={
+        "epochs": 2.0,
         "save_steps": 20,
         "backend": baseline.method.backend.model_copy(update={"run_name": config.experiment.name})})
     assert config.method.resume_from is None
@@ -307,8 +308,10 @@ def test_mix_rejects_scene_metadata_in_wrong_directory(tmp_path, config):
 ])
 def test_mix_configs_and_roundtrip(tmp_path, name, scenes):
     root = Path(__file__).resolve().parents[2]
-    config = load_config(root / f"configs/sft_{name}_mix_9b_fsdp.yaml")
-    baseline = load_config(root / "configs/sft_single_view_9b_fsdp.yaml")
+    config = load_config(root / f"configs/exp/3DHarnessBench/sft_{name}_mix_9b_fsdp.yaml")
+    baseline = load_config(root / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [
+        "experiment.output_dir=../outputs/post_training/Single-view/test",
+    ])
     assert config.experiment.scene == scenes
     assert config.experiment.output_dir != baseline.experiment.output_dir
     assert config.model == baseline.model

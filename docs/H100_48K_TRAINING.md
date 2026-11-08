@@ -6,10 +6,10 @@
 
 | 数据范围 | 配置 |
 | --- | --- |
-| Single-view + Multi-view | `configs/sft_view_mix_27b_fsdp.yaml` |
-| ActiveVisual + Full3DInteraction | `configs/sft_interaction_mix_27b_fsdp.yaml` |
+| Single-view + Multi-view | `configs/exp/3DHarnessBench/sft_view_mix_27b_fsdp.yaml` |
+| ActiveVisual + Full3DInteraction | `configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml` |
 
-两组任务独立训练、分别保存，每份 YAML 只通过 `defaults` 引用公共配置组，不继承任何其他任务入口。两份入口均直接选择 `model: qwen38_27b` 和 `distributed: fsdp`，复用基础模型路径及 49,152 长度预算；训练轮数、批次和学习率等任务参数显式写在各自文件中。优化只在这两份配置中启用，重算和分块参数放在 `method.long_context`。四个单场景 YAML 同样只引用公共配置组，保留各自原有的训练设置。
+两组任务独立训练、分别保存，每份 YAML 只通过 `defaults` 引用公共配置组，不继承任何其他任务入口。两份入口均直接选择 `model: qwen38_27b` 和 `distributed: fsdp`，复用基础模型路径及 49,152 长度预算；训练轮数、批次和学习率等任务参数显式写在各自文件中。优化只在这两份配置中启用，重算和分块参数放在 `method.long_context`。单场景检查可通过 `experiment.scene` 显式选择。
 
 NF4 四位 QLoRA、BF16 计算和量化存储、冻结视觉模块、双卡 FSDP2、每卡批次 1、梯度累积 8、右侧补齐、不拼接样本、不截断。参数与激活都不卸载到 CPU；数据读取和模型初始化仍使用主机内存。
 
@@ -41,13 +41,13 @@ nvidia-smi
 nvidia-smi topo -m
 
 # 只检查 CUDA 和内核分派，不加载基础模型权重或启动训练。
-pixi run post-train check-runtime --config configs/sft_interaction_mix_27b_fsdp.yaml
+pixi run post-train check-runtime --config configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml
 
 # 数据和图片检查，不加载 Processor 或权重。
-pixi run post-train audit --config configs/sft_interaction_mix_27b_fsdp.yaml
+pixi run post-train audit --config configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml
 
 # 只加载 Processor；显示文字、图片引用和标签长度，可能包含很长的历史。
-pixi run post-train preview --config configs/sft_interaction_mix_27b_fsdp.yaml --limit 1
+pixi run post-train preview --config configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml --limit 1
 ```
 
 无需安装或编译外部 `flash-attn` 包；SDPA 使用 PyTorch 自带的 CUDA 内核。内核检查通过只说明构建支持和线性注意力分派正确，具体输入能否使用融合 SDPA 仍在首次前向/反向时检查。
@@ -82,7 +82,7 @@ CPU 对照中的模型全部为小模型；CPU/float32 配置明确关闭混合�
 ```bash
 PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
   pixi run post-train-distributed train \
-  --config configs/sft_interaction_mix_27b_fsdp.yaml \
+  --config configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml \
   tracking=disabled method.max_steps=3 method.save_steps=3 \
   method.backend.eval_strategy=no method.backend.do_eval=false \
   method.backend.skip_memory_metrics=false \
@@ -96,7 +96,7 @@ PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
 ```bash
 PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
   pixi run post-train-distributed train \
-  --config configs/sft_interaction_mix_27b_fsdp.yaml
+  --config configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml
 ```
 
 恢复时使用原配置、原输出目录，并指定其 `method.resume_from`；配置和代码指纹仍须一致。与旧模型一样，推理加载原基础模型加最终 LoRA 即可；优化子类保持原权重名称，优化参数记录在训练配置快照中。

@@ -22,7 +22,8 @@ class CommandConfig(StrictConfig):
     render_only: bool
 
 
-@hydra.main(version_base="1.3", config_path="../configs", config_name="run")
+@hydra.main(version_base="1.3", config_path="../configs",
+            config_name="exp/3DHarnessBench/sft_view_mix_9b_fsdp")
 def run(composed: DictConfig) -> None:
     runtime = HydraConfig.get()
     command = CommandConfig.model_validate(OmegaConf.to_container(composed.command, resolve=True))

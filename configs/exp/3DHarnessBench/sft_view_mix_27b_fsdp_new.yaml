@@ -1,17 +1,19 @@
+# @package _global_
 # Published 3DCodeVerse Qwen3.8-27B LoRA hyperparameters, using view trajectories.
 # Reference: https://github.com/gaoypeng/3dcodeverse/blob/main/finetune/docs/RELEASE.md
 # Project settings: no packing/truncation, SDPA, non-quantized BF16 and FSDP.
 # Data, batch size, input budget and checkpoint intervals remain project-specific.
 defaults:
-- data: trajectory
-- template: qwen
-- model: qwen38_27b
-- method: sft
-- scene: single_view
-- tuning: lora
-- quantization: none
-- distributed: fsdp
-- tracking: wandb
+- /data: trajectory
+- /template: qwen
+- /model: qwen38_27b
+- /method: sft
+- /scene: single_view
+- /tuning: lora
+- /quantization: none
+- /distributed: fsdp
+- /tracking: wandb
+- /command: default
 - _self_
 schema_version: 1
 experiment:
