@@ -13,7 +13,7 @@ defaults:
 schema_version: 1
 experiment:
   name: sft_blender_geo_qwen38_27b_qlora_fsdp
-  output_dir: ../outputs/post_training/Blender_geo/qwen38_27b_qlora_fsdp_epoch1_v1
+  output_dir: ../../../outputs/post_training/Blender_geo/qwen38_27b_qlora_fsdp_epoch1_v1
   scene:
   - Single-view
   - Multi-view
@@ -22,8 +22,8 @@ data:
   - OK
   - UNKNOWN
   files:
-  - ../3dcodeverse/bioinspired3d/bpy_structures_geo_llamafactory_img/trajectory.jsonl
-  - ../3dcodeverse/3dcodebench/instances_geo_llamafactory_img/trajectory.jsonl
+  - ../../../3dcodeverse/bioinspired3d/bpy_structures_geo_llamafactory_img/trajectory.jsonl
+  - ../../../3dcodeverse/3dcodebench/instances_geo_llamafactory_img/trajectory.jsonl
   image_root: ..
   test_fraction: 0.0
   validation_fraction: 0.007680491551459293
