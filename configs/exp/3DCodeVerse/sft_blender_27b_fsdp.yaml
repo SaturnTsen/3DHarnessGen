@@ -54,7 +54,7 @@ method:
   warmup_ratio: 0.03
   weight_decay: 0.01
   backend:
-    loss_type: chunked_nll
+    loss_type: nll
     prediction_loss_only: true
     skip_memory_metrics: false
 tracking:
