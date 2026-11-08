@@ -14,16 +14,18 @@ from conftest import read_wandb_records
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("scene", ["single_view", "multi_view", "active_visual", "full_3d_interaction"])
+@pytest.mark.parametrize("scene", ["Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction"])
 def test_scene_defaults_record_online_in_renamed_project(scene):
-    config = load_config(ROOT / f"configs/sft_{scene}.yaml")
+    config = load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [f"experiment.scene={scene}"])
     assert config.tracking.mode == "online"
     assert config.tracking.project == "3DHarnessGen"
     assert config.method.backend.report_to == ["wandb"]
 
 
 def enable_tracking(config):
-    selected = load_config(ROOT / "configs/sft_single_view.yaml", ["tracking=wandb", "tracking.mode=offline"])
+    selected = load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [
+        "tracking=wandb", "tracking.mode=offline",
+    ])
     config.tracking = selected.tracking
     config.tracking.settings.x_disable_stats = True
     config.method.backend.report_to = ["wandb"]

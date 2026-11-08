@@ -1,15 +1,17 @@
+# @package _global_
 # R2: cumulative full-data replay; no source resampling.
 # Inherit common configuration groups only; never inherit another task entrypoint.
 defaults:
-- data: trajectory
-- template: qwen
-- model: qwen35_9b
-- method: sft
-- scene: multi_view
-- tuning: lora
-- quantization: 4bit
-- distributed: fsdp
-- tracking: wandb
+- /data: trajectory
+- /template: qwen
+- /model: qwen35_9b
+- /method: sft
+- /scene: multi_view
+- /tuning: lora
+- /quantization: 4bit
+- /distributed: fsdp
+- /tracking: wandb
+- /command: default
 - _self_
 schema_version: 1
 experiment:
@@ -36,7 +38,7 @@ data:
   validation_fraction: 0.007680491551459293
 model:
   # Start a new round from the previous adapter; reset optimizer and scheduler.
-  init_from: /mnt/disk5/bingchen/3DHarnessGen/outputs/post_training/Blender/qwen35_9b_qlora_fsdp_mix_epoch1_v1/checkpoints/checkpoint-1612
+  init_from: ../outputs/post_training/Blender/qwen35_9b_qlora_fsdp_mix_epoch1_v1/checkpoints/checkpoint-1612
 method:
   long_context: null
   batch_size: 1

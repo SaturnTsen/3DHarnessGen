@@ -17,8 +17,10 @@ from conftest import write_trajectory
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.parametrize("filename", sorted(path.name for path in (ROOT / "configs").glob("*.yaml")))
-def test_top_level_config_uses_only_common_defaults(tmp_path, filename):
+@pytest.mark.parametrize("filename", sorted(
+    path.relative_to(ROOT / "configs").as_posix() for path in (ROOT / "configs/exp").glob("*/*.yaml")
+))
+def test_experiment_config_uses_only_common_defaults(tmp_path, filename):
     from hydra import compose, initialize_config_dir
     from omegaconf import DictConfig, OmegaConf
 
@@ -26,27 +28,35 @@ def test_top_level_config_uses_only_common_defaults(tmp_path, filename):
     raw = OmegaConf.load(source)
     assert isinstance(raw, DictConfig)
     groups = {"data", "template", "model", "method", "scene", "tuning", "quantization",
-              "distributed", "tracking"}
+              "distributed", "tracking", "command"}
+    assert source.read_text().startswith("# @package _global_\n")
     for entry in raw.defaults:
-        assert entry == "_self_" or isinstance(entry, DictConfig) and set(entry).issubset(groups)
+        assert entry == "_self_" or isinstance(entry, DictConfig) and set(entry).issubset(
+            {f"/{group}" for group in groups})
     assert raw.method.epochs > 0
-    with initialize_config_dir(version_base="1.3", config_dir=str(source.parent)):
+    with initialize_config_dir(version_base="1.3", config_dir=str(ROOT / "configs")):
         expected = compose(config_name=filename)
     for group in groups:
-        shutil.copytree(source.parent / group, tmp_path / group)
+        shutil.copytree(ROOT / "configs" / group, tmp_path / group)
     isolated = tmp_path / filename
+    isolated.parent.mkdir(parents=True)
     isolated.write_text(source.read_text())
     with initialize_config_dir(version_base="1.3", config_dir=str(tmp_path)):
         composed = compose(config_name=filename)
     assert OmegaConf.to_container(composed, resolve=True) == OmegaConf.to_container(expected, resolve=True)
-    if filename != "run.yaml":
-        selected = load_config(isolated, ["method.epochs=3", "model.max_length=65536"])
-        assert selected.method.epochs == 3
-        assert selected.model.max_length == selected.template.max_length == 65536
+    selected = load_config(source, ["method.epochs=3", "model.max_length=65536"])
+    assert selected.method.epochs == 3
+    assert selected.model.max_length == selected.template.max_length == 65536
+    assert selected.data.runs_root == ROOT / "3DHarnessBench/runs"
+    assert selected.experiment.output_dir.is_relative_to(ROOT / "outputs/post_training")
+    if selected.data.files is not None:
+        assert all(path.is_relative_to(ROOT) for path in selected.data.files)
+    if selected.data.image_root is not None:
+        assert selected.data.image_root == ROOT
 
 
 def test_blender_config_keeps_single_gpu_and_wandb_overrides():
-    config = load_config(ROOT / "configs/sft_blender_9b_fsdp.yaml", [
+    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_9b_fsdp.yaml", [
         "distributed=single", "tracking.entity=test-workspace", "tracking.project=test-project",
     ])
     assert config.method.epochs == 2
@@ -59,7 +69,7 @@ def test_blender_config_keeps_single_gpu_and_wandb_overrides():
 
 @pytest.mark.parametrize("task", ["view", "interaction"])
 def test_disabled_tracking_preserves_mixed_task_settings(task):
-    path = ROOT / f"configs/sft_{task}_mix_27b_fsdp.yaml"
+    path = ROOT / f"configs/exp/3DHarnessBench/sft_{task}_mix_27b_fsdp.yaml"
     baseline = load_config(path)
     config = load_config(path, ["tracking=disabled"])
     assert config.tracking == baseline.tracking.model_copy(update={"mode": "disabled"})
@@ -69,37 +79,40 @@ def test_disabled_tracking_preserves_mixed_task_settings(task):
 
 
 def test_model_preset_keeps_explicit_parallel_and_training_settings():
-    path = ROOT / "configs/sft_view_mix_27b_fsdp.yaml"
+    path = ROOT / "configs/exp/3DHarnessBench/sft_view_mix_27b_fsdp.yaml"
     baseline = load_config(path)
     config = load_config(path, ["model=qwen35_9b"])
     assert config.model.path == Path.home() / "models/Qwen3.5-9B"
-    assert config.model.max_length == config.template.max_length == 98304
+    assert config.model.max_length == config.template.max_length == 73728
     assert config.model.device_map is None
     assert config.method == baseline.method
 
 
-@pytest.mark.parametrize("trial", [False, True])
-def test_official_9b_config_selects_model_and_training_mode(trial):
-    suffix = "_trial" if trial else ""
-    config = load_config(ROOT / f"configs/sft_single_view_9b{suffix}.yaml")
+def test_official_9b_config_selects_model_and_training_mode():
+    config = load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml")
     assert config.model.path == Path.home() / "models/Qwen3.5-9B"
-    assert config.distributed.strategy == "ddp"
+    assert config.distributed.strategy == "fsdp"
     assert config.model.quantization is not None
     assert config.model.quantization.bnb_4bit_quant_type == "nf4"
     assert config.method.backend.bf16 is True
     assert config.method.backend.loss_type == "chunked_nll"
     assert config.tracking.mode == "online"
-    assert config.method.max_steps == (3 if trial else -1)
-    assert config.method.backend.do_eval is not trial
+    assert config.method.max_steps == -1
+    assert config.method.backend.do_eval is True
 
 
 def test_composition_paths_ignore_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    config = load_config(ROOT / "configs/sft_single_view.yaml", [
+    config = load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [
         "scene=active_visual", "distributed=fsdp", "quantization=4bit", "method.learning_rate=0.001",
+        "experiment.scene=ActiveVisual", "model=qwen38_27b",
+        "experiment.output_dir=../outputs/post_training/ActiveVisual/test",
+        "model.init_from=../outputs/previous/final", "method.resume_from=../outputs/previous/checkpoints/checkpoint-1",
     ])
     assert config.experiment.scene == "ActiveVisual"
-    assert config.experiment.output_dir == ROOT / "outputs/post_training/ActiveVisual/sft_v1"
+    assert config.experiment.output_dir == ROOT / "outputs/post_training/ActiveVisual/test"
+    assert config.model.init_from == ROOT / "outputs/previous/final"
+    assert config.method.resume_from == ROOT / "outputs/previous/checkpoints/checkpoint-1"
     assert config.data.runs_root == ROOT / "3DHarnessBench/runs"
     assert config.model.path == Path.home() / "models/Qwen3.8-27B"
     assert config.method.learning_rate == .001
@@ -130,7 +143,7 @@ def test_snapshot_preserves_yaml_boolean_like_strings(config, tmp_path):
 ])
 def test_incompatible_combinations_fail_before_loading(overrides, message):
     with pytest.raises(ValidationError, match=message):
-        load_config(ROOT / "configs/sft_single_view.yaml", overrides)
+        load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", overrides)
 
 
 def test_distributed_requires_explicit_launcher(config):
@@ -146,6 +159,8 @@ def test_native_hydra_multirun_keeps_outputs_separate(tmp_path):
     write_trajectory(tmp_path / "runs")
     result = subprocess.run([
         sys.executable, "-m", "harness_training.hydra_cli", "--multirun",
+        "--config-name", "exp/3DHarnessBench/sft_view_mix_9b_fsdp",
+        "experiment.scene=Single-view",
         "distributed=single", "tracking=disabled",
         "command.action=prepare", f"data.runs_root={tmp_path / 'runs'}",
         f"experiment.output_dir={tmp_path / 'output'}", "method.learning_rate=0.001,0.002",
@@ -163,7 +178,8 @@ def test_legacy_cli_accepts_hydra_overrides(tmp_path):
     write_trajectory(tmp_path / "runs")
     result = subprocess.run([
         sys.executable, "-m", "harness_training.cli", "audit", "--config",
-        str(ROOT / "configs/sft_single_view.yaml"), f"data.runs_root={tmp_path / 'runs'}",
+        str(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml"),
+        "experiment.scene=Single-view", f"data.runs_root={tmp_path / 'runs'}",
         "distributed=single", "tracking=disabled",
         "data.validation_fraction=0", "data.test_fraction=0",
     ], cwd=tmp_path, capture_output=True, text=True, timeout=60)

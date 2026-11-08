@@ -48,42 +48,44 @@ NumPy 和 vLLM 固定为 `2.5.3`、`0.30.0`。NumPy 已有的兼容例外通过 
 ## 检查与预览
 
 ```bash
-pixi run post-train audit --config configs/sft_single_view.yaml
-pixi run post-train prepare --config configs/sft_single_view.yaml
-pixi run post-train preview --config configs/sft_single_view.yaml --limit 1
+pixi run post-train audit --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml
+pixi run post-train prepare --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml
+pixi run post-train preview --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml --limit 1
 ```
 
 `audit` 检查数据，输出可用数量和拒绝原因，不加载模型。`prepare` 只保存检查报告和对象划分，不创建新的对话数据。`preview` 加载 Processor，展示模型输入、当前训练目标、图片和 token 数量；`--render-only` 可以跳过图片与 token 编码。
 
-四个配置分别为：
+单独运行某个场景时，使用对应混合配置并覆盖 `experiment.scene`：
 
-| 场景 | 配置 |
-| --- | --- |
-| Single-view | `configs/sft_single_view.yaml` |
-| Multi-view | `configs/sft_multi_view.yaml` |
-| ActiveVisual | `configs/sft_active_visual.yaml` |
-| Full3DInteraction | `configs/sft_full_3d_interaction.yaml` |
+| 场景 | 实验配置 | 追加参数 |
+| --- | --- | --- |
+| Single-view | `configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml` | `experiment.scene=Single-view` |
+| Multi-view | `configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml` | `experiment.scene=Multi-view` |
+| ActiveVisual | `configs/exp/3DHarnessBench/sft_interaction_mix_9b_fsdp.yaml` | `experiment.scene=ActiveVisual` |
+| Full3DInteraction | `configs/exp/3DHarnessBench/sft_interaction_mix_9b_fsdp.yaml` | `experiment.scene=Full3DInteraction` |
+
+训练单个场景时还需用 `experiment.output_dir` 指定独立输出目录。
 
 另外提供两份 9B + NF4 QLoRA + 双卡 FSDP2 混合训练配置：
 
 | 混合场景 | 配置 |
 | --- | --- |
-| Single-view + Multi-view | `configs/sft_view_mix_9b_fsdp.yaml` |
-| ActiveVisual + Full3DInteraction | `configs/sft_interaction_mix_9b_fsdp.yaml` |
+| Single-view + Multi-view | `configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml` |
+| ActiveVisual + Full3DInteraction | `configs/exp/3DHarnessBench/sft_interaction_mix_9b_fsdp.yaml` |
 
 混合配置通过 `experiment.scene` 列表选择场景，直接读取各场景原有轨迹，按可用样本数量合并，不重采样。
 先将所有场景的对象合并去重，再按对象统一划分训练、验证、测试集（80% / 10% / 10%，数量向下取整），同一对象不会跨集合。
 两组各自从基础模型开始训练一轮，分别保存结果；接受 `OK` 和 `UNKNOWN` 步骤，缺失图片的样本会记录并跳过。
 
 ```bash
-pixi run post-train audit --config configs/sft_view_mix_9b_fsdp.yaml
-pixi run post-train audit --config configs/sft_interaction_mix_9b_fsdp.yaml
-pixi run post-train-distributed train --config configs/sft_view_mix_9b_fsdp.yaml
-pixi run post-train-distributed train --config configs/sft_interaction_mix_9b_fsdp.yaml
+pixi run post-train audit --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml
+pixi run post-train audit --config configs/exp/3DHarnessBench/sft_interaction_mix_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/exp/3DHarnessBench/sft_interaction_mix_9b_fsdp.yaml
 ```
 
-对应的 27B 混合配置为 `configs/sft_view_mix_27b_fsdp.yaml` 和
-`configs/sft_interaction_mix_27b_fsdp.yaml`，数据、模板和对象划分分别与上述两份 9B 配置一致。
+对应的 27B 混合配置为 `configs/exp/3DHarnessBench/sft_view_mix_27b_fsdp.yaml` 和
+`configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml`，数据、模板和对象划分分别与上述两份 9B 配置一致。
 两份 YAML 通过 `defaults` 选择公共模型配置 `qwen38_27b`，基础模型路径为 `~/models/Qwen3.8-27B`，不继承任何 9B 任务入口；
 实验名与输出目录均使用 `qwen38_27b`。该目录配置中的架构字段为 `qwen3_5`，基础架构为 `Qwen3_5ForConditionalGeneration`，训练使用其显式子类 `LongContextQwenForConditionalGeneration`。
 目标硬件为两张每卡至少 80 GB 的 H100，采用 NF4 四位量化、BF16 计算和量化存储、
@@ -94,9 +96,9 @@ FSDP2 分片、两级梯度检查点与模型内分块损失（后端填写 `los
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
-  pixi run post-train-distributed train --config configs/sft_view_mix_27b_fsdp.yaml
+  pixi run post-train-distributed train --config configs/exp/3DHarnessBench/sft_view_mix_27b_fsdp.yaml
 CUDA_VISIBLE_DEVICES=0,1 PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
-  pixi run post-train-distributed train --config configs/sft_interaction_mix_27b_fsdp.yaml
+  pixi run post-train-distributed train --config configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml
 ```
 
 ## 3DCodeVerse 分轮混合训练
@@ -107,58 +109,60 @@ Replay 表示全量保留此前数据，不额外重采样；Blender 使用 Bioi
 
 | 配置 | Blender geo / tex | DeepCAD | Articraft CadQuery | URDF | 原始记录总数 |
 | --- | --- | --- | --- | --- | --- |
-| `configs/3dcodeverse_r2_sft_9b_fsdp.yaml` | 6,510 / 3,737 | v1：26,566 | 全部 6 个子集：6,878 | 无 | 43,691 |
-| `configs/3dcodeverse_r3_sft_9b_fsdp.yaml` | 6,510 / 3,737 | v1、v1_1、v1_2：79,888 | 6,878 | 无 | 97,013 |
-| `configs/3dcodeverse_r4_sft_9b_fsdp.yaml` | 6,510 / 3,737 | 全部 5 个子集：128,198 | 6,878 | geo / tex：6,145 | 151,468 |
+| `configs/exp/3DCodeVerse/3dcodeverse_r2_sft_9b_fsdp.yaml` | 6,510 / 3,737 | v1：26,566 | 全部 6 个子集：6,878 | 无 | 43,691 |
+| `configs/exp/3DCodeVerse/3dcodeverse_r3_sft_9b_fsdp.yaml` | 6,510 / 3,737 | v1、v1_1、v1_2：79,888 | 6,878 | 无 | 97,013 |
+| `configs/exp/3DCodeVerse/3dcodeverse_r4_sft_9b_fsdp.yaml` | 6,510 / 3,737 | 全部 5 个子集：128,198 | 6,878 | geo / tex：6,145 | 151,468 |
 
 每轮通过 `model.init_from` 加载上一轮的适配器权重，`method.resume_from: null`
 使优化器、调度器和训练步数重新开始；R3、R4 分别指向 R2、R3 输出目录下的 `final`。
-R2 指向用户指定的 R1 `checkpoint-1080`，迁移机器时需检查该绝对路径是否可用。
+R2 指向项目输出目录中的 Blender `checkpoint-1612`，迁移机器时需同时准备对应 checkpoint。
 每轮分别按对象划分验证集，比例沿用 Blender 配置；表中数量尚未扣除验证集、缺失图片或超长样本。
 
 ```bash
-pixi run post-train audit --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml
-pixi run post-train-distributed train --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml
-pixi run post-train-distributed train --config configs/3dcodeverse_r3_sft_9b_fsdp.yaml
-pixi run post-train-distributed train --config configs/3dcodeverse_r4_sft_9b_fsdp.yaml
+pixi run post-train audit --config configs/exp/3DCodeVerse/3dcodeverse_r2_sft_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/exp/3DCodeVerse/3dcodeverse_r2_sft_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/exp/3DCodeVerse/3dcodeverse_r3_sft_9b_fsdp.yaml
+pixi run post-train-distributed train --config configs/exp/3DCodeVerse/3dcodeverse_r4_sft_9b_fsdp.yaml
 ```
 
 ## 独立配置与命令行覆盖
 
-`configs/*.yaml` 的所有顶层入口只通过 `defaults` 引用公共配置组，任务入口之间不互相继承。
+实验入口位于 `configs/exp/<数据集>/*.yaml`，只通过 `defaults` 引用公共配置组，任务入口之间不互相继承。
+入口使用 `# @package _global_` 将组合结果放在顶层，`defaults` 中的 `/model`、`/data` 等从 `configs/` 查找公共配置。
 模型、数据、模板、训练后端、并行和 W&B 的公共参数保留在相应子目录中；实验名称、输出目录、
 场景选择，以及训练轮数、步数上限、批次、学习率等任务参数直接写在各自入口中。
 训练前由 Pydantic 严格校验完整组合结果，不使用代码默认值补参数。
 修改一个任务入口不会影响其他入口；例如 Blender 的训练轮数直接在
-`configs/sft_blender_9b_fsdp.yaml` 的 `method.epochs` 中设置，当前为 `2.0`。
+`configs/exp/3DCodeVerse/sft_blender_9b_fsdp.yaml` 的 `method.epochs` 中设置，当前为 `2.0`。
 
 `distributed=single`、`tracking=disabled`、`model=qwen35_9b` 等写法由 Hydra 原生处理，
 用于替换 `defaults` 中选中的公共配置。字段覆盖如 `method.epochs=1`、`tracking.entity=...` 同样可用。
 
 训练总序列长度预算由 `defaults` 选中的公共模型配置的 `max_length` 指定，入口可通过
-`model.max_length` 显式覆盖。`configs/model/qwen35_9b.yaml` 为 96K（98,304 token），
-`configs/model/qwen38_27b.yaml` 为 48K（49,152 token）；短程实验配置以其显式覆盖值为准。
+`model.max_length` 显式覆盖。`configs/model/qwen35_9b.yaml` 为 72K（73,728 token），
+`configs/model/qwen38_27b.yaml` 为 144K（147,456 token）；短程实验配置以其显式覆盖值为准。
 公共模板通过 `${model.max_length}` 引用该值，无需重复修改。
 这里的长度包含历史、图片 token 和当前目标回复，不是生成时的 `max_new_tokens`。
 命令行可用 `model.max_length=...` 显式调整；这些预算不代表已完成对应长度的显存实测。
 
 ```bash
-pixi run post-train audit --config configs/sft_single_view.yaml scene=active_visual
-pixi run post-train preview --config configs/sft_single_view.yaml --limit 1 quantization=4bit
+pixi run post-train audit --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml scene=active_visual experiment.scene=ActiveVisual
+pixi run post-train preview --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml --limit 1 quantization=4bit
 ```
 
 原生 Hydra 入口支持检查配置和批量实验；默认动作是 `audit`，不会启动训练：
 
 ```bash
-pixi run post-train-hydra --cfg job --resolve
-pixi run post-train-hydra command.action=audit scene=multi_view
-CUDA_VISIBLE_DEVICES=0 pixi run post-train-hydra --multirun command.action=train distributed=single method.learning_rate=0.00001,0.00002
+pixi run post-train-hydra --config-name exp/3DCodeVerse/sft_blender_9b_fsdp --cfg job --resolve
+pixi run post-train-hydra --config-name exp/3DHarnessBench/sft_view_mix_9b_fsdp command.action=audit
+CUDA_VISIBLE_DEVICES=0 pixi run post-train-hydra --config-name exp/3DHarnessBench/sft_view_mix_9b_fsdp --multirun command.action=train distributed=single method.learning_rate=0.00001,0.00002
 ```
 
 批量实验按顺序运行，每个任务的训练输出在配置的输出目录下追加独立的批次及任务目录。
 Hydra 自身日志与配置保存在当前项目的 `outputs/hydra` 或 `outputs/hydra_sweeps`。
-不改变工作目录；数据、模型、输出、恢复路径仍相对于入口 YAML 所在目录解析，
-不相对于某个配置组目录或启动目录解析。`~` 仍指向当前用户的主目录。
+不改变工作目录；实验的数据、模型、输出、恢复路径统一相对于 `configs/` 解析，
+因此 `../outputs` 和 `../3dcodeverse` 仍指向项目根目录下的对应目录。`~` 仍指向当前用户的主目录。
+项目配置目录之外的独立配置快照仍相对于快照所在目录解析。
 训练目录中的 `resolved_config.yaml` 是完整展开且已解析路径的配置，可独立读取。
 参数值为字符串 `no` 时必须保留引号，避免 Hydra 的 YAML 1.1 将其当作布尔值。
 
@@ -175,16 +179,16 @@ Hydra 自身日志与配置保存在当前项目的 `outputs/hydra` 或 `outputs
 
 ```bash
 # 先展开并检查配置，不加载模型。
-pixi run post-train-hydra --cfg job --resolve
+pixi run post-train-hydra --config-name exp/3DCodeVerse/sft_blender_9b_fsdp --cfg job --resolve
 
 # 单卡 QLoRA，默认在线记录。
 CUDA_VISIBLE_DEVICES=0 pixi run post-train-hydra command.action=train \
-  distributed=single quantization=4bit \
+  distributed=single quantization=4bit experiment.scene=Single-view \
   experiment.output_dir=../outputs/post_training/Single-view/qlora_wandb_v1
 
 # 双卡 DDP，同一实验仅由全局主进程记录。
-pixi run post-train-distributed train --config configs/sft_single_view.yaml \
-  distributed=ddp quantization=4bit \
+pixi run post-train-distributed train --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml \
+  distributed=ddp quantization=4bit experiment.scene=Single-view \
   experiment.output_dir=../outputs/post_training/Single-view/ddp_qlora_wandb_v1
 ```
 
@@ -221,17 +225,17 @@ W&B 按场景分组，自动接收训练后端的 loss、学习率、梯度范�
 单卡训练须通过 `CUDA_VISIBLE_DEVICES` 只暴露一张卡，避免后端自动启用 DataParallel：
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 pixi run post-train train --config configs/sft_single_view.yaml \
-  distributed=single quantization=4bit experiment.output_dir=../outputs/post_training/Single-view/qlora_v1
+CUDA_VISIBLE_DEVICES=0 pixi run post-train train --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml \
+  distributed=single quantization=4bit experiment.scene=Single-view experiment.output_dir=../outputs/post_training/Single-view/qlora_v1
 ```
 
 DDP/FSDP 必须通过多进程启动器启动。以下 Pixi 任务在本机启动两个进程：
 
 ```bash
-pixi run post-train-distributed train --config configs/sft_single_view.yaml \
-  distributed=ddp quantization=4bit experiment.output_dir=../outputs/post_training/Single-view/ddp_qlora_v1
-pixi run post-train-distributed train --config configs/sft_single_view.yaml \
-  distributed=fsdp experiment.output_dir=../outputs/post_training/Single-view/fsdp_lora_v1
+pixi run post-train-distributed train --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml \
+  distributed=ddp quantization=4bit experiment.scene=Single-view experiment.output_dir=../outputs/post_training/Single-view/ddp_qlora_v1
+pixi run post-train-distributed train --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml \
+  distributed=fsdp experiment.scene=Single-view experiment.output_dir=../outputs/post_training/Single-view/fsdp_lora_v1
 ```
 
 需要其他进程数时，使用 `pixi run python -m torch.distributed.run --standalone --nnodes=1
@@ -243,65 +247,20 @@ FSDP2 使用模型声明的层类型进行分片，使用普通梯度检查点�
 QLoRA + FSDP 要求量化存储类型与 `model.dtype` 一致。
 不要在各个 torchrun 进程内运行 Hydra `--multirun`。
 
-27B 的 Single-view 分块损失与双卡 FSDP2 短训配置如下，保留完整输入和图片，
-当前配置直接选择公共 qwen38 模型、四位 QLoRA 和 FSDP 配置，在自身文件中设置梯度累积为 1，最多更新 3 步，并关闭验证和在线记录：
+需要短程检查时，直接覆盖当前实验配置中的步数、验证、记录及输出目录：
 
 ```bash
-pixi run post-train-distributed train --config configs/sft_single_view_fsdp_trial.yaml
+pixi run post-train-distributed train --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml \
+  experiment.scene=Single-view method.max_steps=3 method.gradient_accumulation_steps=1 \
+  method.save_steps=1 method.backend.eval_strategy=no method.backend.do_eval=false \
+  tracking=disabled experiment.output_dir=../outputs/post_training/Single-view/trial
 ```
 
-27B 显式模型类分块计算当前回复的词表分数与交叉熵，后端填写 `loss_type: nll`；长序列的模型内部激活仍占用显存。
-该配置用于检查训练能否运行，不能代替完整训练或验证集评估。
-重复试跑时需显式指定新的 `experiment.output_dir`。
-在双卡 A6000 上，27B BF16 LoRA 的最长 26,749-token 样本仍然 OOM；
-详见 [实测记录](docs/reports/CHUNKED_NLL_FSDP_2026-10-27.md)。
+该命令使用完整输入和图片，不能代替完整训练或验证集评估。
+历史 9B Single-view 实测见 [显存测试记录](docs/reports/QWEN35_9B_FSDP_2026-10-27.md)；
+当时使用的单场景及短程入口已移除，当前入口以 `configs/exp/` 为准。
 
-### 官方 Qwen3.5-9B
-
-`configs/sft_single_view_9b_fsdp.yaml` 使用 9B + NF4 QLoRA + 双卡 FSDP2，
-保留全部长样本训练一轮。最长 26,749-token 样本的两步压力测试已通过，
-两卡峰值分配约 25.72 / 23.51 GiB，详见
-[显存测试记录](docs/reports/QWEN35_9B_FSDP_2026-10-27.md)。
-
-该配置已完成 Single-view 全量一轮训练（320 条训练、40 条验证、20 次更新），
-训练损失 0.346174，验证损失 0.339337；最终 LoRA 已在新进程中精确重载并通过图片输入生成验证。
-[完整报告与加载方法](outputs/post_training/Single-view/qwen35_9b_qlora_fsdp_epoch1_v1/RUN_REPORT.md)
-包含权重校验、逐样本数据来源、完整日志与 W&B 结果链接。
-
-```bash
-PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
-  pixi run post-train-distributed train --config configs/sft_single_view_9b_fsdp.yaml
-```
-
-9B 入口在各自的 `model.path` 中指定下载到 `~/models/Qwen3.5-9B` 的官方多模态权重。
-`configs/sft_single_view_9b.yaml` 为 Single-view 的双卡 DDP + NF4 QLoRA 配置，
-基础计算使用 BF16，视觉模块冻结；沿用完整脚本、图片及对象划分规则，默认在线记录 W&B。
-使用 TRL 原生 `loss_type: chunked_nll` 分块计算相同的交叉熵，避免完整词表分数矩阵导致显存不足。
-模型配置组也可通过 `model=qwen35_9b` 用于其他场景。
-
-先执行短程配置检查真实 9B 模型的训练与保存：
-
-```bash
-pixi run post-train-distributed train --config configs/sft_single_view_9b_trial.yaml
-```
-
-该配置训练 3 步，每卡每步 1 条样本，梯度累积为 1，每步保存，关闭验证，
-并记录显存指标。输入长度预算保持 32768，不截断脚本。
-试跑目录是 `outputs/post_training/Single-view/qwen35_9b_qlora_trial_v2`。
-已经存在训练结果时，使用新的输出目录或显式恢复；恢复示例：
-
-```bash
-pixi run post-train-distributed train --config configs/sft_single_view_9b_trial.yaml \
-  method.resume_from=../outputs/post_training/Single-view/qwen35_9b_qlora_trial_v2/checkpoints/checkpoint-2
-```
-
-正式配置启用验证，使用独立输出目录和原有梯度累积设置：
-
-```bash
-pixi run post-train-distributed train --config configs/sft_single_view_9b.yaml
-```
-
-相对路径以 YAML 所在目录为起点，`~` 自动展开。`prepare()` 先读取当前场景的轨迹路径，再按 `data.instances` 筛选，最后将选中的路径传给 `_split_objects(paths)`。该方法用配置种子打乱路径副本，切分后生成训练、验证和测试分配；测试和验证数量向下取整，余下归入训练集。未选中的对象和其他场景不参与划分。同一组选中对象使用相同种子和比例时可复现；选中对象集合变化时可能重新分组。
+实验配置中的相对路径以 `configs/` 为起点，`~` 自动展开。`prepare()` 先读取当前场景的轨迹路径，再按 `data.instances` 筛选，最后将选中的路径传给 `_split_objects(paths)`。该方法用配置种子打乱路径副本，切分后生成训练、验证和测试分配；测试和验证数量向下取整，余下归入训练集。未选中的对象和其他场景不参与划分。同一组选中对象使用相同种子和比例时可复现；选中对象集合变化时可能重新分组。
 
 轨迹格式以 [v3 交付规范](docs/POST_TRAIN_TRAJECTORY_CONTRACT.md) 为准。`tools/validate_trajectory.py` 和训练读取器共用 `harness_training/data/contract.py` 的严格校验，不兼容旧的 `conversations` / `sharegpt_conversion` 数据。
 
@@ -318,7 +277,7 @@ CLI 的 `audit`、`prepare`、`preview` 和 `train` 默认额外接受 `UNKNOWN`
 `model.device_map` 必须显式填写，当前配置组填写 `null`；单进程跨多张 GPU 放置模型时可填写 `balanced`。这是按层分配权重，不能据此推断多进程训练吞吐或显存余量。
 
 ```bash
-pixi run post-train-distributed train --config configs/sft_single_view.yaml
+pixi run post-train-distributed train --config configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml
 ```
 
 训练会先用 Processor 检查所有选中的样本。过长或无法可靠转换的样本记录后跳过，不自动截断。检查通过后才加载模型权重。每条样本只学习当前选定的 assistant 回复，system、用户请求、历史回复、工具返回、图片与补齐位置均不计算训练误差。
@@ -327,7 +286,7 @@ pixi run post-train-distributed train --config configs/sft_single_view.yaml
 
 ```yaml
 method:
-  # 其余 method 参数仍须保留；路径相对于 YAML 所在目录。
+  # 其余 method 参数仍须保留；实验路径相对于 configs/。
   resume_from: ../outputs/post_training/Single-view/sft_v1/checkpoints/checkpoint-100
 ```
 
@@ -336,7 +295,7 @@ method:
 
 ```bash
 CUDA_VISIBLE_DEVICES=3 pixi run post-train train \
-  --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml \
+  --config configs/exp/3DCodeVerse/3dcodeverse_r2_sft_9b_fsdp.yaml \
   distributed=single \
   tracking.entity=lingada60-institut-polytechnique-de-paris \
   tracking.project=huggingface \
@@ -367,7 +326,7 @@ single/DDP/FSDP2 并行方式、每卡 batch 和梯度累积，但必须保持�
 CUDA_VISIBLE_DEVICES=2,3 \
 PYTORCH_ALLOC_CONF=expandable_segments:True OMP_NUM_THREADS=4 \
 pixi run post-train-distributed train \
-  --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml \
+  --config configs/exp/3DCodeVerse/3dcodeverse_r2_sft_9b_fsdp.yaml \
   distributed=fsdp \
   tracking.entity=lingada60-institut-polytechnique-de-paris \
   tracking.project=huggingface \
@@ -412,7 +371,7 @@ elastic 采用独立随机种子确定每轮全局样本排列，在已完成参
 
 ```bash
 CUDA_VISIBLE_DEVICES=2,3 pixi run post-train-distributed check-resume \
-  --config configs/3dcodeverse_r2_sft_9b_fsdp.yaml \
+  --config configs/exp/3DCodeVerse/3dcodeverse_r2_sft_9b_fsdp.yaml \
   tracking.entity=lingada60-institut-polytechnique-de-paris \
   tracking.project=huggingface \
   method.resume_policy=elastic method.batch_size=2 method.gradient_accumulation_steps=2 \
@@ -465,7 +424,7 @@ elastic 恢复允许提高 `model.max_length` / `template.max_length`，但固�
 适配器设置一致，并保留来源运行目录中的 `resolved_config.yaml`。新阶段可以修改数据、
 学习率和训练时长，使用新的输出目录与 W&B run，优化器、调度器和步数从头开始。
 当前这个入口支持 LoRA/QLoRA，直接读取 FSDP2 checkpoint 中的可训练权重，无需合并基础模型。
-`model.init_from` 默认在公共模型配置中显式填写为 `null`，路径相对于当前 YAML 所在目录。
+`model.init_from` 默认在公共模型配置中显式填写为 `null`，实验中的相对路径以 `configs/` 为起点。
 
 例如，View-mix 的 `checkpoint-40` 接着训练 Interaction-mix：
 
@@ -477,7 +436,7 @@ OMP_NUM_THREADS=4 \
 pixi run python -m torch.distributed.run \
   --standalone --nnodes=1 --nproc-per-node=2 \
   -m harness_training.cli train \
-  --config configs/sft_interaction_mix_27b_fsdp.yaml \
+  --config configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml \
   model.init_from=../outputs/post_training/View-mix/qwen38_27b_qlora_fsdp_epoch1_v1/checkpoints/checkpoint-40 \
   method.resume_from=null \
   experiment.output_dir=../outputs/post_training/Interaction-mix/qwen38_27b_from_view_epoch1_v1 \
@@ -496,11 +455,10 @@ pixi run python -m torch.distributed.run \
 
 ## 双卡 H100 的 27B 48k 配置
 
-优化仅由 `configs/sft_view_mix_27b_fsdp.yaml` 和
-`configs/sft_interaction_mix_27b_fsdp.yaml` 启用，两组任务分别训练、分别保存。
+优化仅由 `configs/exp/3DHarnessBench/sft_view_mix_27b_fsdp.yaml` 和
+`configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml` 启用，两组任务分别训练、分别保存。
 两份入口分别通过 `defaults` 选择公共 Qwen 27B 模型与 FSDP 配置，优化参数直接写在各自入口中；
-`method.long_context` 明确配置重算和分块。四个单场景 YAML 同样只引用公共配置组，保留各自原有的训练设置，
-不继承其他任务入口，也不另设 `_h100_48k.yaml`。
+`method.long_context` 明确配置重算和分块，不继承其他任务入口，也不另设 `_h100_48k.yaml`。
 采用 NF4 QLoRA、FSDP2、PyTorch SDPA 融合注意力、两级 GPU 重算、前馈分块及图片分批编码，不使用 CPU 卸载。
 不依赖外部 `flash-attn`；线性注意力仍使用 FLA 和 causal-conv1d，SDPA 禁止回退到 math 后端。
 该路径由显式模型子类实现分块损失，不运行时替换 `forward`。

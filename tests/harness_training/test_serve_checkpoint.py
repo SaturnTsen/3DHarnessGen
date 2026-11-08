@@ -141,7 +141,7 @@ def test_fsdp_config_can_come_from_training_snapshot(serving_checkpoint):
     from harness_training.config import load_config
 
     base, checkpoint = serving_checkpoint
-    config = load_config(Path(__file__).resolve().parents[2] / 'configs/sft_blender_9b_fsdp.yaml')
+    config = load_config(Path(__file__).resolve().parents[2] / 'configs/exp/3DCodeVerse/sft_blender_9b_fsdp.yaml')
     config.model.path = base
     snapshot = config.model_dump(mode='json')
     (checkpoint.parent.parent / 'resolved_config.yaml').write_text(json.dumps(snapshot))

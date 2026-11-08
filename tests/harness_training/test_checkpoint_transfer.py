@@ -109,7 +109,7 @@ def test_fsdp_qlora_transfer_between_mix_configs(hybrid_model_path, tmp_path):
     source = None
     source_config = None
     for task in ("view", "interaction"):
-        config = load_config(root / f"configs/sft_{task}_mix_27b_fsdp.yaml", ["tracking=disabled"])
+        config = load_config(root / f"configs/exp/3DHarnessBench/sft_{task}_mix_27b_fsdp.yaml", ["tracking=disabled"])
         config.model.path = hybrid_model_path
         config.model.init_from = source
         config.data.runs_root = runs
