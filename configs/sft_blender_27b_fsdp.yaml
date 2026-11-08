@@ -30,7 +30,13 @@ data:
 model:
   max_length: 120000
 method:
-  long_context: null
+  long_context:
+    require_optimized_kernels: true
+    activation_dtype: bfloat16
+    checkpoint_group_size: 8
+    mlp_chunk_size: 2048
+    vision_batch_size: 2
+    loss_chunk_size: 256
   batch_size: 1
   dataloader_workers: 0
   epochs: 2.0
