@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from scripts.rebuild_astra_contract import SETTINGS, Evidence, audit, environment_message, indexed_tools
-from tools.validate_trajectory import load_json
+from harness_training.data.contract import load_json
 
 
 def main():

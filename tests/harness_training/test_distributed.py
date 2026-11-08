@@ -26,7 +26,7 @@ def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantizati
     if torch.cuda.device_count() < devices:
         pytest.skip(f"Requires {devices} CUDA GPUs")
     root = Path(__file__).resolve().parents[2]
-    config = load_config(root / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [
+    config = load_config(root / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [
         "experiment.scene=Single-view", "model=qwen38_27b",
         f"distributed={strategy}", f"quantization={quantization}",
         "method.long_context=null", "model.attention_implementation=sdpa",

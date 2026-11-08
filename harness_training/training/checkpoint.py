@@ -1,12 +1,52 @@
 """Check checkpoint file completeness without loading model tensors."""
 
 import json
+import os
 from pathlib import Path
 
-from harness_training.config import TrainingConfig
+from harness_training.config import SFTMethodConfig, TrainingConfig
+from harness_training.checkpoints import Checkpoint
+
+
+def resolve_resume(config: TrainingConfig) -> TrainingConfig:
+    """Resolve an automatic request once, after CLI configuration composition."""
+    if config.method.resume_from != "auto":
+        return config
+    method = config.method
+    if not isinstance(method, SFTMethodConfig):
+        raise ValueError(f"Unsupported checkpoint method: {method.name}")
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    if (world_size == 1) != (config.distributed.strategy == "single"):
+        raise ValueError("Use distributed=single for one process; launch ddp/fsdp with torchrun")
+    if method.backend.save_only_model:
+        raise ValueError("Automatic resume requires save_only_model: false")
+    output = config.experiment.output_dir
+    required = [output / "manifest.json", output / "resolved_config.yaml"]
+    if config.tracking.mode != "disabled":
+        required.append(output / "wandb_run.json")
+    if any(not path.is_file() for path in required):
+        raise ValueError("Automatic resume requires the original manifest, resolved config and W&B state")
+    candidates = sorted((path for path in (output / "checkpoints").glob("checkpoint-*")
+                         if path.is_dir() and path.name.removeprefix("checkpoint-").isdigit()),
+                        key=lambda path: int(path.name.removeprefix("checkpoint-")), reverse=True)
+    for checkpoint in candidates:
+        problem = checkpoint_problem(checkpoint, config, world_size)
+        if problem is not None:
+            if int(os.environ.get("RANK", "0")) == 0:
+                print(f"[resume] Skip {checkpoint.name}: {problem}", flush=True)
+            continue
+        selected = config.model_copy(deep=True)
+        selected.method.resume_from = checkpoint
+        if int(os.environ.get("RANK", "0")) == 0:
+            print(f"[resume] Restore {checkpoint}", flush=True)
+        return selected
+    raise ValueError("No resumable checkpoint for this process count; training was not restarted")
 
 
 def checkpoint_problem(path: Path, config: TrainingConfig, world_size: int) -> str | None:
+    method = config.method
+    if not isinstance(method, SFTMethodConfig):
+        raise ValueError(f"Unsupported checkpoint method: {method.name}")
     state_path = path / "trainer_state.json"
     if not state_path.is_file():
         return "missing trainer_state.json"
@@ -19,7 +59,7 @@ def checkpoint_problem(path: Path, config: TrainingConfig, world_size: int) -> s
     rng_files = {file.name for file in path.glob("rng_state*.pth")}
     expected_rng = ({"rng_state.pth"} if world_size == 1 else
                     {f"rng_state_{rank}.pth" for rank in range(world_size)})
-    elastic = config.method.resume_policy == "elastic"
+    elastic = method.resume_policy == "elastic"
     if elastic:
         saved_world = len(rng_files)
         expected_rng = ({"rng_state.pth"} if saved_world == 1 else
@@ -27,12 +67,11 @@ def checkpoint_problem(path: Path, config: TrainingConfig, world_size: int) -> s
     if not rng_files or rng_files != expected_rng:
         return "RNG state missing or saved process count differs from this launch"
     required = [path / "scheduler.pt", *(path / name for name in expected_rng)]
-    if config.method.backend.fp16:
+    if method.backend.fp16:
         required.append(path / "scaler.pt")
-    source_fsdp = (path / "pytorch_model_fsdp_0").is_dir() if elastic else config.distributed.strategy == "fsdp"
-    manifest_path = path / "resume_manifest.json"
-    if elastic and not manifest_path.is_file():
-        manifest_path = path.parent.parent / "manifest.json"
+    artifact = Checkpoint(path)
+    source_fsdp = artifact.is_fsdp if elastic else config.distributed.strategy == "fsdp"
+    manifest_path = artifact.manifest_path
     portable = elastic and (path / "portable_state.pt").is_file()
     if elastic and manifest_path.is_file():
         try:
@@ -52,7 +91,7 @@ def checkpoint_problem(path: Path, config: TrainingConfig, world_size: int) -> s
             if progress.global_step != state["global_step"]:
                 return "data progress and checkpoint step differ"
     elif source_fsdp:
-        required += [path / "pytorch_model_fsdp_0/.metadata", path / "optimizer_0/.metadata"]
+        required += [artifact.model_shards / ".metadata", artifact.optimizer_shards / ".metadata"]
     else:
         required.append(path / "optimizer.pt")
         weights = ("adapter_model.safetensors", "adapter_model.bin") if config.model.tuning == "lora" else (

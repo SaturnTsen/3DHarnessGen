@@ -9,7 +9,6 @@ description = "Config-driven post-training on existing 3DHarnessBench trajectori
 requires-python = ">=3.12"
 dependencies = [
   "pydantic>=2.12,<3",
-  "pydantic-yaml>=1.6,<2",
   "Pillow>=11",
   "torch>=2.6",
   "transformers>=5.17,<6",

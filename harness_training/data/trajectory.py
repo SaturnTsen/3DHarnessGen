@@ -78,7 +78,7 @@ class TrajectoryDataset(BaseDataset):
         assignments = (self._split_instances(sorted({record.instance for record in records}))
                        if self.config.files is not None else self._split_objects(paths))
         bundle.assignments.update(assignments)
-        selections = {(record.path, record.line): self._select(record) for record in records}
+        selections = {(record.path, record.line): self.select(record) for record in records}
         images = sorted({path for examples in selections.values() for example in examples
                          for index in example.indices for path in example.record.images_by_message[index]})
         with workers.progress("检查去重后的图片", len(images)) as advance:
@@ -131,16 +131,19 @@ class TrajectoryDataset(BaseDataset):
             result.entries.append({"path": str(path), "reason": "Empty trajectory file"})
         for line_number, line in enumerate(payload.decode("utf-8").splitlines(), 1):
             try:
-                row = validate_record(line, explicit_image_root=self.config.files is not None and self.config.image_root is not None)
-                if self.config.files is None and row.metadata.scene != path.parents[3].name:
-                    raise DataError("Scene metadata does not match input path")
-                instance = row.metadata.instance if self.config.files is not None else path.parent.parent.name
-                record = self._read_record(path, line_number, instance, row)
+                record = self.read_record(path, line_number, line)
             except ValueError as exc:
                 result.entries.append({"path": str(path), "line": line_number, "reason": str(exc)})
             else:
                 result.entries.append(record)
         return result
+
+    def read_record(self, path: Path, line: int, raw: str) -> TrajectoryRecord:
+        row = validate_record(raw, explicit_image_root=self.config.files is not None and self.config.image_root is not None)
+        if self.config.files is None and row.metadata.scene != path.parents[3].name:
+            raise DataError("Scene metadata does not match input path")
+        instance = row.metadata.instance if self.config.files is not None else path.parent.parent.name
+        return self._read_record(path, line, instance, row)
 
     def _check_image(self, path: Path) -> str | None:
         return validate_image(path, self.config.verify_images)
@@ -172,7 +175,7 @@ class TrajectoryDataset(BaseDataset):
         )
         return TrajectoryRecord(path, line, instance, row, bindings)
 
-    def _select(self, record: TrajectoryRecord) -> list[TrainingExample]:
+    def select(self, record: TrajectoryRecord) -> list[TrainingExample]:
         return [TrainingExample(record, tuple(step.context_indices) + (step.target_index,),
                                 step.target_index, step.id)
                 for step in record.row.metadata.steps

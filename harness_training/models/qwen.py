@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import fields
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from harness_training.types import Processor
@@ -11,6 +10,8 @@ if TYPE_CHECKING:
 
 from harness_training.config import LongContextConfig, ModelConfig, TemplateConfig
 from .base import BaseModel
+from .adapters import build_lora_config
+from harness_training.checkpoints import Checkpoint
 
 
 class QwenModel(BaseModel):
@@ -35,18 +36,7 @@ class QwenModel(BaseModel):
             validate_long_context_kernels()
 
     def _lora_config(self) -> LoraConfig:
-        from peft import LoraConfig, LoraRuntimeConfig
-
-        lora = self.config.lora
-        options = lora.backend.model_dump(mode="json")
-        options.update(r=lora.rank, lora_alpha=lora.alpha, lora_dropout=lora.dropout,
-                       target_modules=lora.target_modules, task_type=lora.task_type, bias=lora.bias)
-        options["runtime_config"] = LoraRuntimeConfig(**lora.backend.runtime_config.model_dump())
-        required = {field.name for field in fields(LoraConfig) if field.init}
-        if options.keys() != required:
-            raise ValueError(f"LoraConfig fields changed: missing={sorted(required - options.keys())}, "
-                             f"unknown={sorted(options.keys() - required)}")
-        return LoraConfig(**options)
+        return build_lora_config(self.config.lora)
 
     def _validate_initialization(self) -> None:
         source = self.config.init_from
@@ -54,15 +44,11 @@ class QwenModel(BaseModel):
             return
         if not source.is_dir():
             raise ValueError("model.init_from must be an existing checkpoint or adapter directory")
-        if (source / "pytorch_model_fsdp_0/.metadata").is_file():
-            from pydantic import RootModel
-            from pydantic_yaml import parse_yaml_raw_as
-            from harness_training.types import JsonObject
-
-            snapshot = source.parent.parent / "resolved_config.yaml"
-            if not snapshot.is_file():
+        if Checkpoint(source).is_fsdp:
+            artifact = Checkpoint(source)
+            if not artifact.snapshot_path.is_file():
                 raise ValueError("FSDP model.init_from requires the source run's resolved_config.yaml")
-            prior = cast(JsonObject, parse_yaml_raw_as(RootModel[JsonObject], snapshot.read_text()).root["model"])
+            prior = artifact.snapshot()["model"]
             current = self.config.model_dump(mode="json")
             if any(prior[key] != current[key] for key in ("name", "path", "tuning", "lora", "adapter")):
                 raise ValueError("model.init_from base model, LoRA and adapter settings must match the source run")
@@ -90,7 +76,7 @@ class QwenModel(BaseModel):
 
         model = cast(PeftModel, self.model)
         adapter = self.config.adapter
-        if (source / "pytorch_model_fsdp_0/.metadata").is_file():
+        if Checkpoint(source).is_fsdp:
             from torch.distributed.checkpoint.filesystem import FileSystemReader
             from torch.distributed.checkpoint.metadata import TensorStorageMetadata
             from torch.distributed.checkpoint.state_dict_loader import load
@@ -98,12 +84,12 @@ class QwenModel(BaseModel):
             # Read only trainable tensors; frozen 27B/quantized base weights stay on disk.
             state = get_peft_model_state_dict(model, adapter_name=adapter.adapter_name)
             weights = {name: value.detach().cpu().clone() for name, value in state.items()}
-            metadata = FileSystemReader(source / "pytorch_model_fsdp_0").read_metadata()
+            metadata = FileSystemReader(Checkpoint(source).model_shards).read_metadata()
             for name, value in weights.items():
                 saved = metadata.state_dict_metadata.get(f"model.{name}")
                 if not isinstance(saved, TensorStorageMetadata) or saved.size != value.shape:
                     raise ValueError(f"model.init_from missing or incompatible trainable tensor: {name}")
-            load({"model": weights}, checkpoint_id=source / "pytorch_model_fsdp_0", no_dist=True)
+            load({"model": weights}, checkpoint_id=Checkpoint(source).model_shards, no_dist=True)
             set_peft_model_state_dict(model, weights, adapter_name=adapter.adapter_name,
                                       low_cpu_mem_usage=adapter.low_cpu_mem_usage)
         else:
@@ -202,10 +188,3 @@ class QwenModel(BaseModel):
             raise ValueError("No trainable model parameters")
         self._load_initial_weights()
         return self.model
-
-    def save(self, path: Path) -> None:
-        if self.model is None:
-            raise RuntimeError("Model weights have not been loaded")
-        path.mkdir(parents=True, exist_ok=True)
-        self.model.save_pretrained(str(path))
-        self.processor.save_pretrained(path)

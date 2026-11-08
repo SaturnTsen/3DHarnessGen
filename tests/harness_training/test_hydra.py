@@ -56,7 +56,7 @@ def test_experiment_config_uses_only_common_defaults(tmp_path, filename):
 
 
 def test_blender_config_keeps_single_gpu_and_wandb_overrides():
-    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_9b_fsdp.yaml", [
+    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [
         "distributed=single", "tracking.entity=test-workspace", "tracking.project=test-project",
     ])
     assert config.method.epochs == 2
@@ -69,7 +69,8 @@ def test_blender_config_keeps_single_gpu_and_wandb_overrides():
 
 @pytest.mark.parametrize("task", ["view", "interaction"])
 def test_disabled_tracking_preserves_mixed_task_settings(task):
-    path = ROOT / f"configs/exp/3DHarnessBench/sft_{task}_mix_27b_fsdp.yaml"
+    path = ROOT / ("configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml" if task == "view" else
+            "configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml")
     baseline = load_config(path)
     config = load_config(path, ["tracking=disabled"])
     assert config.tracking == baseline.tracking.model_copy(update={"mode": "disabled"})
@@ -79,7 +80,7 @@ def test_disabled_tracking_preserves_mixed_task_settings(task):
 
 
 def test_model_preset_keeps_explicit_parallel_and_training_settings():
-    path = ROOT / "configs/exp/3DHarnessBench/sft_view_mix_27b_fsdp.yaml"
+    path = ROOT / "configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml"
     baseline = load_config(path)
     config = load_config(path, ["model=qwen35_9b"])
     assert config.model.path == Path.home() / "models/Qwen3.5-9B"
@@ -89,7 +90,7 @@ def test_model_preset_keeps_explicit_parallel_and_training_settings():
 
 
 def test_official_9b_config_selects_model_and_training_mode():
-    config = load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml")
+    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml")
     assert config.model.path == Path.home() / "models/Qwen3.5-9B"
     assert config.distributed.strategy == "fsdp"
     assert config.model.quantization is not None
@@ -103,7 +104,7 @@ def test_official_9b_config_selects_model_and_training_mode():
 
 def test_composition_paths_ignore_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    config = load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [
+    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [
         "scene=active_visual", "distributed=fsdp", "quantization=4bit", "method.learning_rate=0.001",
         "experiment.scene=ActiveVisual", "model=qwen38_27b",
         "experiment.output_dir=../outputs/post_training/ActiveVisual/test",
@@ -143,7 +144,7 @@ def test_snapshot_preserves_yaml_boolean_like_strings(config, tmp_path):
 ])
 def test_incompatible_combinations_fail_before_loading(overrides, message):
     with pytest.raises(ValidationError, match=message):
-        load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", overrides)
+        load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", overrides)
 
 
 def test_distributed_requires_explicit_launcher(config):
@@ -159,8 +160,8 @@ def test_native_hydra_multirun_keeps_outputs_separate(tmp_path):
     write_trajectory(tmp_path / "runs")
     result = subprocess.run([
         sys.executable, "-m", "harness_training.hydra_cli", "--multirun",
-        "--config-name", "exp/3DHarnessBench/sft_view_mix_9b_fsdp",
-        "experiment.scene=Single-view",
+        "--config-name", "exp/3DCodeVerse/sft_blender_geo_r1_9b",
+        "experiment.scene=Single-view", "data.files=null", "data.image_root=null",
         "distributed=single", "tracking=disabled",
         "command.action=prepare", f"data.runs_root={tmp_path / 'runs'}",
         f"experiment.output_dir={tmp_path / 'output'}", "method.learning_rate=0.001,0.002",
@@ -178,8 +179,8 @@ def test_legacy_cli_accepts_hydra_overrides(tmp_path):
     write_trajectory(tmp_path / "runs")
     result = subprocess.run([
         sys.executable, "-m", "harness_training.cli", "audit", "--config",
-        str(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml"),
-        "experiment.scene=Single-view", f"data.runs_root={tmp_path / 'runs'}",
+        str(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml"),
+        "experiment.scene=Single-view", "data.files=null", "data.image_root=null", f"data.runs_root={tmp_path / 'runs'}",
         "distributed=single", "tracking=disabled",
         "data.validation_fraction=0", "data.test_fraction=0",
     ], cwd=tmp_path, capture_output=True, text=True, timeout=60)

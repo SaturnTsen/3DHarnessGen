@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from pydantic_yaml import parse_yaml_raw_as, to_yaml_str
+from abc import ABC, abstractmethod
+
+from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, field_validator, model_validator
 
 from harness_training.types import JsonObject
 
@@ -365,11 +366,20 @@ class SFTTrainerConfig(StrictConfig):
     formatting_func: Literal[None]
 
 
-class MethodConfig(StrictConfig):
-    long_context: LongContextConfig | None
+class MethodConfig(StrictConfig, ABC):
     name: str = Field(min_length=1)
-    resume_from: Path | None
+    resume_from: Path | Literal["auto"] | None
     resume_policy: Literal["strict", "elastic"]
+    use_cpu: bool
+
+    @abstractmethod
+    def validate_training(self, model: ModelConfig, distributed: DistributedConfig,
+                          tracking: TrackingConfig) -> None:
+        """Validate the concrete method's model and runtime requirements."""
+
+
+class SFTMethodConfig(MethodConfig):
+    long_context: LongContextConfig | None
     backend: SFTBackendConfig
     trainer: SFTTrainerConfig
     learning_rate: float = Field(gt=0)
@@ -385,7 +395,13 @@ class MethodConfig(StrictConfig):
     eval_steps: int = Field(gt=0)
     save_total_limit: int = Field(gt=0)
     dataloader_workers: int = Field(ge=0)
-    use_cpu: bool
+
+    @field_validator("name")
+    @classmethod
+    def sft_name(cls, value: str) -> str:
+        if value != "sft":
+            raise ValueError(f"Unsupported training method: {value}")
+        return value
 
     @model_validator(mode="after")
     def steps(self):
@@ -393,22 +409,11 @@ class MethodConfig(StrictConfig):
             raise ValueError("max_steps must be -1 or positive")
         return self
 
-
-class TrainingConfig(StrictConfig):
-    schema_version: Literal[1]
-    experiment: ExperimentConfig
-    data: DataConfig
-    template: TemplateConfig
-    model: ModelConfig
-    method: MethodConfig
-    distributed: DistributedConfig
-    tracking: TrackingConfig
-
-    @model_validator(mode="after")
-    def compatible_training(self):
-        if self.method.resume_policy == "elastic":
-            backend = self.method.backend
-            if self.model.tuning != "lora" or self.model.lora.backend.modules_to_save is not None:
+    def validate_training(self, model: ModelConfig, distributed: DistributedConfig,
+                          tracking: TrackingConfig) -> None:
+        if self.resume_policy == "elastic":
+            backend = self.backend
+            if model.tuning != "lora" or model.lora.backend.modules_to_save is not None:
                 raise ValueError("Elastic resume requires LoRA without modules_to_save")
             if backend.save_only_model or backend.ignore_data_skip or backend.dataloader_drop_last:
                 raise ValueError("Elastic resume requires full training checkpoints, data skipping and no drop_last")
@@ -425,33 +430,33 @@ class TrainingConfig(StrictConfig):
             if backend.fsdp_config is not None and (backend.fsdp_config.version != 2
                     or backend.fsdp_config.state_dict_type != "SHARDED_STATE_DICT"):
                 raise ValueError("Elastic resume requires FSDP2 sharded checkpoints")
-        if self.model.init_from is not None and self.model.tuning != "lora":
+        if model.init_from is not None and model.tuning != "lora":
             raise ValueError("model.init_from currently requires tuning: lora")
-        backend = self.method.backend
-        long_context = self.method.long_context
+        backend = self.backend
+        long_context = self.long_context
         if long_context is not None:
-            if long_context.activation_dtype != self.model.dtype:
+            if long_context.activation_dtype != model.dtype:
                 raise ValueError("long_context.activation_dtype must match model.dtype")
             if backend.loss_type != "nll" or backend.use_liger_kernel:
                 raise ValueError("long_context implements chunked NLL in the model; "
                                  "use backend.loss_type: nll and use_liger_kernel: false")
             if not backend.prediction_loss_only or backend.label_smoothing_factor != 0:
                 raise ValueError("long_context requires prediction_loss_only: true and label_smoothing_factor: 0")
-            if not self.model.freeze_vision:
+            if not model.freeze_vision:
                 raise ValueError("long_context image microbatches require freeze_vision: true")
-            if (not set(self.model.lora.target_modules) <= {"q_proj", "k_proj", "v_proj", "o_proj"}
-                    or self.model.lora.backend.modules_to_save is not None
-                    or self.model.lora.backend.target_parameters is not None):
+            if (not set(model.lora.target_modules) <= {"q_proj", "k_proj", "v_proj", "o_proj"}
+                    or model.lora.backend.modules_to_save is not None
+                    or model.lora.backend.target_parameters is not None):
                 raise ValueError("long_context supports q/k/v/o LoRA only, without modules_to_save")
-            if self.model.tuning != "lora":
+            if model.tuning != "lora":
                 raise ValueError("long_context requires tuning: lora")
-            if long_context.checkpoint_group_size is not None and not self.method.gradient_checkpointing:
+            if long_context.checkpoint_group_size is not None and not self.gradient_checkpointing:
                 raise ValueError("Grouped checkpointing requires gradient_checkpointing: true")
             if backend.gradient_checkpointing_kwargs.use_reentrant:
                 raise ValueError("long_context requires use_reentrant: false")
             if backend.activation_offloading or (backend.fsdp_config is not None and backend.fsdp_config.cpu_offload):
                 raise ValueError("long_context does not permit CPU offloading")
-            if long_context.require_optimized_kernels and self.model.attention_implementation != "sdpa":
+            if long_context.require_optimized_kernels and model.attention_implementation != "sdpa":
                 raise ValueError("Optimized long_context requires attention_implementation: sdpa")
             if backend.fsdp_config is not None and backend.fsdp_config.transformer_layer_cls_to_wrap not in (
                 None, ["LongContextQwenDecoderLayer"],
@@ -459,32 +464,64 @@ class TrainingConfig(StrictConfig):
                 raise ValueError("long_context FSDP may wrap only LongContextQwenDecoderLayer; "
                                  "vision microbatches must not introduce per-image collectives")
         report_to = backend.report_to
-        if self.tracking.mode == "disabled":
+        if tracking.mode == "disabled":
             if report_to not in ([], ["none"], "none"):
                 raise ValueError("Disabled tracking requires report_to: [none] or []")
         elif report_to not in (["wandb"], "wandb"):
             raise ValueError("Enabled W&B tracking requires report_to: [wandb]")
-        fsdp = self.distributed.strategy == "fsdp"
+        fsdp = distributed.strategy == "fsdp"
         if fsdp != (backend.fsdp is True) or fsdp != (backend.fsdp_config is not None):
             raise ValueError("distributed.strategy and backend.fsdp/fsdp_config must agree")
-        if self.distributed.strategy != "single" and self.model.device_map is not None:
+        if distributed.strategy != "single" and model.device_map is not None:
             raise ValueError("DDP/FSDP require model.device_map: null")
-        quantization = self.model.quantization
+        quantization = model.quantization
         if quantization is not None:
-            if self.model.tuning != "lora" or self.method.use_cpu:
+            if model.tuning != "lora" or self.use_cpu:
                 raise ValueError("4-bit training requires LoRA and GPU execution")
-            if self.model.device_map is not None:
+            if model.device_map is not None:
                 raise ValueError("4-bit training requires model.device_map: null; each process selects its GPU")
-            if quantization.use_gradient_checkpointing != self.method.gradient_checkpointing:
+            if quantization.use_gradient_checkpointing != self.gradient_checkpointing:
                 raise ValueError("Quantization and method gradient_checkpointing must agree")
             if quantization.gradient_checkpointing_kwargs != backend.gradient_checkpointing_kwargs:
                 raise ValueError("Quantization and backend gradient_checkpointing_kwargs must agree")
-            if fsdp and quantization.bnb_4bit_quant_storage != self.model.dtype:
+            if fsdp and quantization.bnb_4bit_quant_storage != model.dtype:
                 raise ValueError("FSDP quantization storage must match model.dtype")
+
+
+MethodT = TypeVar("MethodT", bound=MethodConfig)
+type SupportedMethodConfig = SFTMethodConfig
+
+
+class TrainingConfig(StrictConfig, Generic[MethodT]):
+    schema_version: Literal[1]
+    experiment: ExperimentConfig
+    data: DataConfig
+    template: TemplateConfig
+    model: ModelConfig
+    method: SerializeAsAny[MethodT]
+    distributed: DistributedConfig
+    tracking: TrackingConfig
+
+    @field_validator("method", mode="before")
+    @classmethod
+    def parse_method(cls, value):
+        if isinstance(value, MethodConfig):
+            return value
+        if not isinstance(value, dict):
+            raise ValueError("method must be a mapping")
+        match value.get("name"):
+            case "sft" | None:
+                return SFTMethodConfig.model_validate(value)
+            case name:
+                raise ValueError(f"Unsupported training method: {name}")
+
+    @model_validator(mode="after")
+    def compatible_training(self):
+        self.method.validate_training(self.model, self.distributed, self.tracking)
         return self
 
 
-def load_config(path: str | Path, overrides: list[str] | None = None) -> TrainingConfig:
+def load_config(path: str | Path, overrides: list[str] | None = None) -> TrainingConfig[SupportedMethodConfig]:
     from hydra import compose, initialize_config_dir
     from omegaconf import OmegaConf
 
@@ -499,17 +536,17 @@ def load_config(path: str | Path, overrides: list[str] | None = None) -> Trainin
     return parse_config(training, directory)
 
 
-def parse_config(composed, directory: Path) -> TrainingConfig:
+def parse_config(composed, directory: Path) -> TrainingConfig[SupportedMethodConfig]:
     from omegaconf import OmegaConf
 
-    config = parse_yaml_raw_as(TrainingConfig, OmegaConf.to_yaml(composed, resolve=True))
+    config = TrainingConfig[SupportedMethodConfig].model_validate(OmegaConf.to_container(composed, resolve=True))
     for section, field in [(config.experiment, "output_dir"), (config.data, "runs_root"),
                            (config.data, "image_root"),
                            (config.model, "path"),
                            (config.model, "init_from"),
                            (config.method, "resume_from")]:
         value = getattr(section, field)
-        if value is not None:
+        if value is not None and value != "auto":
             expanded = value.expanduser()
             setattr(section, field, (expanded if expanded.is_absolute() else directory / expanded).resolve())
     if config.data.files is not None:
@@ -519,11 +556,17 @@ def parse_config(composed, directory: Path) -> TrainingConfig:
     return config
 
 
-def save_config(config: TrainingConfig, path: Path) -> None:
-    from ruamel.yaml import YAML
+def read_yaml(path: Path) -> dict:
+    from omegaconf import OmegaConf
 
-    # Hydra uses YAML 1.1: quote strings such as "no" to preserve them on reload.
-    writer = YAML()
-    writer.version = (1, 1)
+    value = OmegaConf.to_container(OmegaConf.load(path), resolve=True)
+    if not isinstance(value, dict):
+        raise ValueError(f"Expected a YAML mapping: {path}")
+    return value
+
+
+def save_config(config: TrainingConfig, path: Path) -> None:
+    from omegaconf import OmegaConf
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(to_yaml_str(config, custom_yaml_writer=writer), encoding="utf-8")
+    OmegaConf.save(OmegaConf.create(config.model_dump(mode="json")), path, resolve=True)

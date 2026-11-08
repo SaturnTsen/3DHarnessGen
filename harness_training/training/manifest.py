@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from harness_training.config import TrainingConfig
+from harness_training.checkpoints import Checkpoint
 from harness_training.data.base import PreparationWorkers, SerialPreparationWorkers
 
 
@@ -23,7 +24,7 @@ def config_identity(config: TrainingConfig) -> dict:
 
 
 def backend_versions() -> dict[str, str]:
-    return {name: importlib.metadata.version(name) for name in ("torch", "transformers", "trl", "pydantic-yaml")}
+    return {name: importlib.metadata.version(name) for name in ("torch", "transformers", "trl", "pydantic")}
 
 
 def code_identity() -> dict[str, str]:
@@ -43,9 +44,9 @@ def model_sources(config: TrainingConfig) -> list[Path]:
         paths += [initialization / name for name in (
             "adapter_config.json", "adapter_model.safetensors", "adapter_model.bin", "pytorch_model_fsdp_0/.metadata",
         ) if (initialization / name).is_file()]
-        if (initialization / "pytorch_model_fsdp_0/.metadata").is_file():
-            paths.append(initialization.parent.parent / "resolved_config.yaml")
-            paths += sorted((initialization / "pytorch_model_fsdp_0").glob("*.distcp"))
+        if Checkpoint(initialization).is_fsdp:
+            paths.append(Checkpoint(initialization).snapshot_path)
+            paths += sorted(Checkpoint(initialization).model_shards.glob("*.distcp"))
     return paths
 
 

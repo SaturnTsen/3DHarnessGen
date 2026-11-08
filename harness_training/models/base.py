@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import TYPE_CHECKING
 from harness_training.types import Processor
 
@@ -27,7 +26,3 @@ class BaseModel(ABC):
     @abstractmethod
     def load(self) -> PreTrainedModel | PeftModel:
         """Load model weights and apply trainable-parameter settings."""
-
-    @abstractmethod
-    def save(self, path: Path) -> None:
-        """Save model or adapter and the matching processor."""

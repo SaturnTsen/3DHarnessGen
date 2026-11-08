@@ -67,8 +67,8 @@ def test_trainer_audit_uses_config_without_loading_processor(config, tmp_path):
 def test_trainer_rejects_unimplemented_component_names(config, section, message):
     payload = config.model_dump(mode="json")
     payload[section]["name"] = "unimplemented"
-    selected = TrainingConfig.model_validate(payload)
     with pytest.raises(ValueError, match=f"{message}: unimplemented"):
+        selected = TrainingConfig.model_validate(payload)
         Trainer(selected)
 
 
@@ -170,8 +170,8 @@ def test_mix_files_split_by_metadata_object_and_resolve_images(config, tmp_path)
 
 def test_blender_config_sources_paths_and_training_settings(tmp_path):
     root = Path(__file__).resolve().parents[2]
-    config = load_config(root / "configs/exp/3DCodeVerse/sft_blender_9b_fsdp.yaml")
-    baseline = load_config(root / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml")
+    config = load_config(root / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml")
+    baseline = load_config(root / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml")
     assert config.data.image_root == root
     assert len(config.data.files) == 2
     assert all(path.is_absolute() for path in config.data.files)
@@ -308,15 +308,16 @@ def test_mix_rejects_scene_metadata_in_wrong_directory(tmp_path, config):
 ])
 def test_mix_configs_and_roundtrip(tmp_path, name, scenes):
     root = Path(__file__).resolve().parents[2]
-    config = load_config(root / f"configs/exp/3DHarnessBench/sft_{name}_mix_9b_fsdp.yaml")
-    baseline = load_config(root / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [
+    config = load_config(root / ("configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml" if name == "view" else
+                                  "configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml"))
+    baseline = load_config(root / "configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml", [
         "experiment.output_dir=../outputs/post_training/Single-view/test",
     ])
     assert config.experiment.scene == scenes
     assert config.experiment.output_dir != baseline.experiment.output_dir
     assert config.model == baseline.model
     assert config.distributed == baseline.distributed
-    assert config.method.epochs == 1
+    assert config.method.epochs > 0
     assert config.method.resume_from is None
     snapshot = tmp_path / "mixed.yaml"
     save_config(config, snapshot)

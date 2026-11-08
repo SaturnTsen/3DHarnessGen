@@ -21,7 +21,7 @@ from PIL import Image
 
 from scripts.build_trajectory import image_refs, prompts, resolve_recorded, retry_prompt
 from scripts.export_astra_chat_completions import ArchiveImages, content_parts, read_json
-from tools.validate_trajectory import Trajectory, load_json
+from harness_training.data.contract import Trajectory, load_json
 
 
 SETTINGS = ("Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction")

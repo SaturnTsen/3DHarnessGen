@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 from harness_training.config import TrainingConfig
+from harness_training.checkpoints import Checkpoint
 from harness_training.data.trajectory import TrajectoryDataset
 from .checkpoint import checkpoint_problem
 from .elastic import DataProgress, load_progress, validate_manifest
@@ -42,7 +43,7 @@ def check_resume(config: TrainingConfig, world_size: int, *,
               "processor_loaded": False, "weights_loaded": False, "wandb_connected": False}
     try:
         resume_stage(report, "checkpoint_config", "校验 checkpoint、配置、后端版本及代码。", workers)
-        if checkpoint is None:
+        if not isinstance(checkpoint, Path):
             raise ValueError("check-resume requires method.resume_from (a checkpoint path or auto)")
         if (world_size == 1) != (config.distributed.strategy == "single"):
             raise ValueError("single requires one process; ddp/fsdp require torchrun")
@@ -51,9 +52,7 @@ def check_resume(config: TrainingConfig, world_size: int, *,
         problem = checkpoint_problem(checkpoint, config, world_size)
         if problem is not None:
             raise ValueError(f"{checkpoint.name}: {problem}")
-        manifest = checkpoint / "resume_manifest.json"
-        if not manifest.is_file():
-            manifest = config.experiment.output_dir / "manifest.json"
+        manifest = Checkpoint(checkpoint).manifest_path
         prior = json.loads(manifest.read_text())
         current = {"config": config_identity(config), "versions": backend_versions(), "code": code_identity(),
                    "targets": prior["targets"], "sources": prior["sources"]}

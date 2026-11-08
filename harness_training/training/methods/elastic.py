@@ -18,6 +18,7 @@ from torch.distributed.checkpoint.state_dict import (
 from transformers import Trainer, set_seed
 from trl.trainer.sft_trainer import SFTTrainer
 
+from harness_training.checkpoints import Checkpoint
 from harness_training.data.elastic import (
     ElasticCollator, EpochDataLoader, GlobalBatchSampler, IndexedTrainingDataset, epoch_order,
 )
@@ -63,7 +64,7 @@ class ElasticTrainerMixin(SFTTrainer):
         if (checkpoint / "portable_state.pt").is_file():
             # Restored together with the optimizer, after FSDP has wrapped parameters.
             return
-        if (checkpoint / "pytorch_model_fsdp_0/.metadata").is_file():
+        if Checkpoint(checkpoint).is_fsdp:
             from accelerate.utils import load_fsdp_model
 
             if self.is_fsdp_enabled:
@@ -74,7 +75,7 @@ class ElasticTrainerMixin(SFTTrainer):
             from torch.distributed.checkpoint.filesystem import FileSystemReader
 
             base = self._state_model()
-            metadata = FileSystemReader(checkpoint / "pytorch_model_fsdp_0").read_metadata()
+            metadata = FileSystemReader(Checkpoint(checkpoint).model_shards).read_metadata()
             adapter = base.active_adapter
             names = {}
             for name, parameter in base.named_parameters():
@@ -82,7 +83,7 @@ class ElasticTrainerMixin(SFTTrainer):
                     key = name if f"model.{name}" in metadata.state_dict_metadata else name.replace(f".{adapter}.", ".")
                     names[key] = name
             weights = {key: base.get_parameter(name).detach().clone() for key, name in names.items()}
-            load({"model": weights}, checkpoint_id=checkpoint / "pytorch_model_fsdp_0")
+            load({"model": weights}, checkpoint_id=Checkpoint(checkpoint).model_shards)
             set_model_state_dict(base, {names[key]: tensor for key, tensor in weights.items()},
                                  options=StateDictOptions(strict=False))
             return
@@ -110,14 +111,14 @@ class ElasticTrainerMixin(SFTTrainer):
             set_model_state_dict(model, saved["model"], options=options)
             set_optimizer_state_dict(model, optimizer, saved["optimizer"], options=options)
             scheduler.load_state_dict(saved["scheduler"])
-        elif (path / "optimizer_0/.metadata").is_file():
+        elif (Checkpoint(path).optimizer_shards / ".metadata").is_file():
             if self.is_fsdp_enabled:
                 super()._load_optimizer_and_scheduler(checkpoint)
             else:
                 from torch.distributed.checkpoint.state_dict_loader import load
 
                 state = get_optimizer_state_dict(model, optimizer)
-                load({"optimizer": state}, checkpoint_id=path / "optimizer_0")
+                load({"optimizer": state}, checkpoint_id=Checkpoint(path).optimizer_shards)
                 set_optimizer_state_dict(model, optimizer, state)
                 scheduler.load_state_dict(torch.load(path / "scheduler.pt", weights_only=True))
         else:

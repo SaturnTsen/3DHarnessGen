@@ -9,7 +9,7 @@ import sys
 import pytest
 
 from harness_training.config import save_config
-from scripts.post_train import checkpoint_problem, resolve_arguments
+from harness_training.training.checkpoint import checkpoint_problem, resolve_resume
 from test_tracking import enable_tracking
 
 
@@ -36,13 +36,15 @@ def test_auto_selects_numeric_latest_and_skips_incomplete_checkpoint(config, tmp
     path = tmp_path / "config.yaml"
     save_config(config, path)
     arguments = ["train", "--config", str(path), "method.resume_from=auto"]
-    resolved = resolve_arguments(arguments)
-    assert resolved[-1] == f"method.resume_from={output / 'checkpoints/checkpoint-20'}"
+    config.method.resume_from = "auto"
+    resolved = resolve_resume(config)
+    assert resolved.method.resume_from == output / "checkpoints/checkpoint-20"
+    assert config.method.resume_from == "auto"
     (output / "checkpoints/checkpoint-20/optimizer.pt").unlink()
-    assert resolve_arguments(arguments)[-1].endswith("checkpoint-9")
+    assert resolve_resume(config).method.resume_from.name == "checkpoint-9"
     (output / "checkpoints/checkpoint-9/scheduler.pt").unlink()
     with pytest.raises(ValueError, match="No resumable checkpoint"):
-        resolve_arguments(arguments)
+        resolve_resume(config)
 
 
 def test_rejects_process_count_change(config, tmp_path):
@@ -68,9 +70,9 @@ def test_checks_fsdp_optimizer_and_all_rank_states(config, tmp_path):
     assert "process count" in checkpoint_problem(checkpoint, config, 2)
 
 
-def test_passthrough_preserves_existing_commands():
-    arguments = ["train", "--config", "config.yaml", "method.resume_from=/saved/checkpoint-10"]
-    assert resolve_arguments(arguments) == arguments
+def test_explicit_resume_is_not_replaced(config):
+    config.method.resume_from = Path("/saved/checkpoint-10")
+    assert resolve_resume(config) is config
 
 
 def test_elastic_auto_checks_completion_but_accepts_old_process_count(config, tmp_path):
@@ -108,7 +110,7 @@ def test_auto_resume_small_model_preserves_training_and_wandb_state(config, tiny
     config.model.lora.target_modules = ["q_proj", "v_proj"]
     path = tmp_path / "config.yaml"
     save_config(config, path)
-    command = [sys.executable, "-m", "scripts.post_train", "train", "--config", str(path)]
+    command = [sys.executable, "-m", "harness_training.cli", "train", "--config", str(path)]
     environment = {**os.environ, "OMP_NUM_THREADS": "2", "TOKENIZERS_PARALLELISM": "false", "CUDA_VISIBLE_DEVICES": ""}
 
     def run(arguments):

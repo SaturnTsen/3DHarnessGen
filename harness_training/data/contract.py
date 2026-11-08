@@ -8,11 +8,10 @@ Tool discovery descriptions remain in tool results, with image order preserved.
 from __future__ import annotations
 
 import json
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Annotated, Literal, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationInfo, field_validator, model_validator
-from pydantic_yaml import parse_yaml_raw_as
 
 def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result = {}
@@ -412,8 +411,28 @@ class Trajectory(BaseModelStrict):
 
 
 def validate_record(raw: str, *, explicit_image_root: bool = False) -> Trajectory:
-    # Require JSON syntax before using the project's YAML/Pydantic reader.
-    value = load_json(raw)
-    if explicit_image_root:
-        return Trajectory.model_validate(value, context={"explicit_image_root": True})
-    return parse_yaml_raw_as(Trajectory, json.dumps(value, ensure_ascii=False))
+    return Trajectory.model_validate(load_json(raw), context={"explicit_image_root": explicit_image_root})
+
+
+def main(paths: list[Path]) -> None:
+    """Validate JSON documents or JSONL, reporting all failures before exiting."""
+    passed = failed = 0
+    sessions = set()
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        records = [text] if path.suffix == ".json" else text.splitlines()
+        for line, raw in enumerate(records, 1):
+            try:
+                row = validate_record(raw)
+                identity = (row.metadata.scene, row.metadata.instance, row.metadata.session_id)
+                if identity in sessions:
+                    raise ValueError("重复的 session_id")
+                sessions.add(identity)
+            except ValueError as exc:
+                failed += 1
+                print(f"{path}: 记录/行 {line}: {exc}")
+            else:
+                passed += 1
+    print(f"{passed} 条通过，{failed} 条失败")
+    if failed:
+        raise SystemExit(1)

@@ -1,35 +1,49 @@
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from accelerate.utils import FullyShardedDataParallelPlugin
-    from trl import SFTConfig
-    from harness_training.training.elastic import DataProgress
-    from harness_training.types import Manifest
+    from transformers.processing_utils import ProcessorMixin
+    from trl.trainer.sft_config import SFTConfig
 
-from harness_training.config import MethodConfig
+from harness_training.config import SFTMethodConfig, TrainingConfig
 from harness_training.data.base import DatasetBundle
 from harness_training.models.base import BaseModel
 from harness_training.templates.base import BaseTemplate
 from harness_training.training.collator import SFTCollator
-from harness_training.types import JsonObject, Metrics
-from .base import BaseTrainingMethod
+from harness_training.types import Manifest, Metrics
+from harness_training.training.elastic import DataProgress
+from harness_training.training.preflight import PreflightWorkers
+from harness_training.training.resume import check_resume, verify_encoded_manifest
+from harness_training.training.tracking import record_resume_transition
+from .base import BaseTrainingMethod, ResumeState, TrainingRun
+
+
+@dataclass
+class SFTResumeState(ResumeState):
+    progress: DataProgress | None
 
 
 class SFTMethod(BaseTrainingMethod):
-    def __init__(self, config: MethodConfig, seed: int):
+    def __init__(self, config: SFTMethodConfig, seed: int):
         self.config, self.seed = config, seed
-        self.resume_manifest: Manifest | None = None
-        self.resume_progress: DataProgress | None = None
+
+    def check_resume(self, config: TrainingConfig, world_size: int, *,
+                     workers: PreflightWorkers | None = None) -> SFTResumeState:
+        manifest, progress, report = check_resume(config, world_size, workers=workers)
+        return SFTResumeState(cast(Manifest, manifest), report, progress)
+
+    def verify_resume(self, config: TrainingConfig, resume: ResumeState, manifest: Manifest) -> None:
+        verify_encoded_manifest(cast(dict, resume.manifest), cast(dict, manifest), config, resume.report)
 
     def build_arguments(self, output_dir: Path, resume_from: Path | None) -> SFTConfig:
-        from trl import SFTConfig
+        from trl.trainer.sft_config import SFTConfig
 
         cfg = self.config
-        options: JsonObject = cfg.backend.model_dump(mode="json")
+        options = cfg.backend.model_dump(mode="json")
         options.update(
             output_dir=str(output_dir / "checkpoints"),
             learning_rate=cfg.learning_rate, num_train_epochs=cfg.epochs, max_steps=cfg.max_steps,
@@ -48,9 +62,9 @@ class SFTMethod(BaseTrainingMethod):
         return SFTConfig(**options)
 
     def run(self, model: BaseModel, template: BaseTemplate, data: DatasetBundle,
-            output_dir: Path, resume_from: Path | None) -> Metrics:
+            output_dir: Path, resume_from: Path | None, *, context: TrainingRun) -> Metrics:
         from datasets import Dataset
-        from trl import SFTTrainer
+        from trl.trainer.sft_trainer import SFTTrainer
         from transformers import ProgressCallback, set_seed
 
         from harness_training.training.progress import ResumeProgressCallback
@@ -59,6 +73,18 @@ class SFTMethod(BaseTrainingMethod):
             raise ValueError("No usable training samples")
 
         cfg = self.config
+        resume = context.resume
+        if resume is not None and not isinstance(resume, SFTResumeState):
+            raise TypeError("SFT requires its own checked resume state")
+        progress = resume.progress if resume is not None else None
+        if progress is not None:
+            import os
+
+            world_size = int(os.environ.get("WORLD_SIZE", "1"))
+            if int(os.environ.get("RANK", "0")) == 0:
+                print(f"[resume] 恢复数据位置：第 {progress.epoch} 轮，下一样本位置 {progress.next_sample}；"
+                      f"进程数 {progress.world_size} → {world_size}。", flush=True)
+            record_resume_transition(context.config, progress, world_size)
         set_seed(self.seed)
         if (cfg.backend.eval_strategy != "no" or cfg.backend.do_eval) and not data.validation:
             raise ValueError("Configured evaluation requires a nonempty validation split")
@@ -73,15 +99,15 @@ class SFTMethod(BaseTrainingMethod):
             from .elastic import ElasticSFTTrainer, ElasticLongContextSFTTrainer
 
             trainer_class = ElasticLongContextSFTTrainer if model.long_context is not None else ElasticSFTTrainer
-            elastic_options = {"resume_manifest": self.resume_manifest, "resume_progress": self.resume_progress}
+            elastic_options = {"resume_manifest": context.manifest, "resume_progress": progress}
         # The backend's Dataset carries only integer references to in-memory views.
         # Original conversations, images and provenance remain in the existing records.
         examples = data.train + data.validation
         backend = trainer_class(
-            model=model.load(), args=args, processing_class=model.processor,
+            model=model.load(), args=args, processing_class=cast("ProcessorMixin", model.processor),
             train_dataset=Dataset.from_dict({"example_index": list(range(len(data.train)))}),
             eval_dataset=Dataset.from_dict({"example_index": list(range(len(data.train), len(examples)))}) if data.validation else None,
-            data_collator=SFTCollator(template, model.processor.tokenizer.pad_token_id, examples,
+            data_collator=SFTCollator(template, cast(int, model.processor.tokenizer.pad_token_id), examples,
                                       label_ignore_index=template.config.label_ignore_index,
                                       attention_padding_value=template.config.attention_padding_value,
                                       token_type_padding_value=template.config.token_type_padding_value),

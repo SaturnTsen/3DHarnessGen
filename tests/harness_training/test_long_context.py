@@ -160,11 +160,11 @@ def test_image_microbatches_preserve_variable_grids_order_and_duplicates():
 ])
 def test_48k_rejects_unsafe_or_incompatible_settings(override):
     with pytest.raises(ValueError):
-        load_config("configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml", [override])
+        load_config("configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml", [override])
 
 
 def test_long_context_options_are_explicit():
-    cfg = load_config("configs/exp/3DHarnessBench/sft_interaction_mix_27b_fsdp.yaml")
+    cfg = load_config("configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml")
     assert cfg.template.max_length == 147456
     assert cfg.model.attention_implementation == "sdpa"
     for field in LongContextConfig.model_fields:

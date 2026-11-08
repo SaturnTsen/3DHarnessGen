@@ -6,24 +6,23 @@ import os
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal
 
 from harness_training.types import (
     AuditReport, DataReport, JsonObject, JsonValue, Manifest, ManifestPayload, Metrics, PreviewItem,
 )
 
-from harness_training.config import TrainingConfig, save_config
+from harness_training.config import SFTMethodConfig, TrainingConfig, save_config
 from harness_training.data.base import BaseDataset, DatasetBundle
 from harness_training.data.trajectory import TrajectoryDataset
 from harness_training.models.base import BaseModel
 from harness_training.models.qwen import QwenModel
 from harness_training.templates.base import BaseTemplate, TemplateError
 from harness_training.templates.qwen import QwenTemplate
-from harness_training.training.methods.base import BaseTrainingMethod
+from harness_training.training.methods.base import BaseTrainingMethod, TrainingRun
 from harness_training.training.methods.sft import SFTMethod
-from harness_training.training.tracking import tracking_session, record_resume_transition
+from harness_training.training.tracking import tracking_session
 from .manifest import backend_versions, code_identity, config_identity, hash_file, model_sources, hash_source
-from .resume import check_resume, verify_encoded_manifest
 from .preflight import PreflightWorkers, preflight_log, validate_encoding
 
 
@@ -41,19 +40,20 @@ class Trainer:
         self.config = config
         self.dataset: BaseDataset = TrajectoryDataset(
             config.data, config.experiment.scene, config.experiment.seed)
+        self.method: BaseTrainingMethod
+        match (config.method.name, config.method):
+            case ("sft", SFTMethodConfig() as method_config):
+                self.method = SFTMethod(method_config, config.experiment.seed)
+                long_context = method_config.long_context
+            case _:
+                raise ValueError(f"Unsupported training method: {config.method.name}")
         self.model: BaseModel
         match config.model.name:
             case "qwen":
-                self.model = QwenModel(config.model, config.template, config.method.long_context)
+                self.model = QwenModel(config.model, config.template, long_context)
             case _:
                 raise ValueError(f"Unsupported model: {config.model.name}")
         self._template: BaseTemplate | None = None
-        self.method: BaseTrainingMethod
-        match config.method.name:
-            case "sft":
-                self.method = SFTMethod(config.method, config.experiment.seed)
-            case _:
-                raise ValueError(f"Unsupported training method: {config.method.name}")
 
     @property
     def template(self) -> BaseTemplate:
@@ -128,7 +128,7 @@ class Trainer:
         return {**payload, "fingerprint": hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()}
 
     def check_resume(self) -> dict:
-        return check_resume(self.config, int(os.environ.get("WORLD_SIZE", "1")))[2]
+        return self.method.check_resume(self.config, int(os.environ.get("WORLD_SIZE", "1"))).report
 
     def run(self) -> Metrics:
         # Revalidate programmatic edits before loading the Processor or weights.
@@ -143,6 +143,8 @@ class Trainer:
             if torch.cuda.device_count() > 1:
                 raise ValueError("single requires one visible GPU: set CUDA_VISIBLE_DEVICES, or select ddp/fsdp")
         resume_from = self.config.method.resume_from
+        if resume_from == "auto":
+            raise ValueError("Resolve method.resume_from=auto through the CLI or resolve_resume() first")
         output = self.config.experiment.output_dir
         if resume_from is None and ((output / "final").exists() or list((output / "checkpoints").glob("checkpoint-*"))):
             raise ValueError("Output already contains a training run; choose another output_dir or resume explicitly")
@@ -153,12 +155,12 @@ class Trainer:
             if resume_from.parent != (output / "checkpoints").resolve():
                 raise ValueError("Resume checkpoint must belong to this output directory")
         prior = None
-        resume_report = None
+        resume_state = None
         if resume_from is not None:
             if int(os.environ.get("RANK", "0")) == 0:
                 print("[resume] 提前检查 checkpoint、配置、版本、源文件和 W&B 身份；不加载 Processor。", flush=True)
-            prior, progress, resume_report = check_resume(self.config, world_size, workers=PreflightWorkers(label="resume"))
-            cast(SFTMethod, self.method).resume_progress = progress
+            resume_state = self.method.check_resume(self.config, world_size, workers=PreflightWorkers(label="resume"))
+            prior = resume_state.manifest
         preflight_log("检查训练运行环境和优化内核。")
         self.model.validate_runtime()
         # Validate and measure inputs before allocating model weights.
@@ -175,16 +177,8 @@ class Trainer:
             )
         preflight_log("编码完成，计算数据指纹；模型权重尚未加载。")
         manifest = self._manifest(data)
-        if prior is not None:
-            verify_encoded_manifest(prior, cast(dict, manifest), self.config, cast(dict, resume_report))
-            if self.config.method.resume_policy == "elastic":
-                from .elastic import DataProgress
-
-                progress = cast(DataProgress, cast(SFTMethod, self.method).resume_progress)
-                preflight_log(f"恢复数据位置：第 {progress.epoch} 轮，"
-                              f"下一样本位置 {progress.next_sample}；"
-                              f"进程数 {progress.world_size} → {world_size}。")
-        cast(SFTMethod, self.method).resume_manifest = manifest
+        if resume_state is not None:
+            self.method.verify_resume(self.config, resume_state, manifest)
         if int(os.environ.get("RANK", "0")) == 0:
             self.save_report(data)
             # Keep legacy provenance available when retrying an older checkpoint.
@@ -193,10 +187,8 @@ class Trainer:
                 write_json(output / "manifest.json", manifest)
         preflight_log("预检查完成，进入训练后端并加载模型权重。")
         with tracking_session(self.config, resume_from, is_main_process=int(os.environ.get("RANK", "0")) == 0):
-            progress = cast(SFTMethod, self.method).resume_progress
-            if progress is not None:
-                record_resume_transition(self.config, progress, world_size)
-            metrics = self.method.run(self.model, self.template, data, output, resume_from)
+            metrics = self.method.run(self.model, self.template, data, output, resume_from,
+                                      context=TrainingRun(self.config, manifest, resume_state))
             # Distributed training has a single writer for the final metrics.
             if int(os.environ.get("RANK", "0")) == 0:
                 write_json(output / "metrics.json", metrics)

@@ -92,10 +92,11 @@ def tiny_qwen_path(processor, tmp_path_factory):
 @pytest.fixture
 def config(tmp_path):
     write_trajectory(tmp_path / "runs")
-    config = load_config(Path(__file__).resolve().parents[2] / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [
+    config = load_config(Path(__file__).resolve().parents[2] / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [
         "experiment.scene=Single-view", "model=qwen38_27b",
         "tracking=disabled", "distributed=single", "quantization=none",
         "method.long_context=null", "model.attention_implementation=sdpa",
+        "data.files=null", "data.image_root=null",
     ])
     config.experiment.name = "test"
     config.experiment.output_dir = tmp_path / "output"

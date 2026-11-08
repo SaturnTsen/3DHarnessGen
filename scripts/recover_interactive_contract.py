@@ -15,7 +15,7 @@ from pathlib import Path
 
 from scripts.export_astra_chat_completions import ArchiveImages
 from scripts.rebuild_astra_contract import Evidence, attach_additional_tools, audit, indexed_tools, interactive, step
-from tools.validate_trajectory import Trajectory
+from harness_training.data.contract import Trajectory
 
 
 def recover(row, mapping, context, source):

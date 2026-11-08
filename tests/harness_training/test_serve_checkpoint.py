@@ -9,8 +9,9 @@ import sys
 
 import pytest
 
-from scripts.serve_checkpoint import (
-    build_command, extract_fsdp_adapter, option_value, read_adapter_config, validate_adapter,
+from harness_training.checkpoints import Checkpoint
+from harness_training.serving import (
+    build_command, extract_fsdp_adapter, option_value, validate_adapter,
 )
 
 
@@ -141,7 +142,7 @@ def test_fsdp_config_can_come_from_training_snapshot(serving_checkpoint):
     from harness_training.config import load_config
 
     base, checkpoint = serving_checkpoint
-    config = load_config(Path(__file__).resolve().parents[2] / 'configs/exp/3DCodeVerse/sft_blender_9b_fsdp.yaml')
+    config = load_config(Path(__file__).resolve().parents[2] / 'configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml')
     config.model.path = base
     snapshot = config.model_dump(mode='json')
     (checkpoint.parent.parent / 'resolved_config.yaml').write_text(json.dumps(snapshot))
@@ -149,7 +150,7 @@ def test_fsdp_config_can_come_from_training_snapshot(serving_checkpoint):
     save({'model': expected}, checkpoint_id=checkpoint / 'pytorch_model_fsdp_0', no_dist=True)
     (checkpoint / 'adapter_config.json').unlink()
     (checkpoint / 'adapter_model.safetensors').unlink()
-    reconstructed = read_adapter_config(checkpoint, snapshot)
+    reconstructed = Checkpoint(checkpoint).adapter_config()
     assert reconstructed['r'] == config.model.lora.rank
     assert reconstructed['lora_alpha'] == config.model.lora.alpha
     assert reconstructed['base_model_name_or_path'] == str(config.model.path)
@@ -164,7 +165,7 @@ def test_cli_dry_run_does_not_expose_api_key(serving_checkpoint):
     _, checkpoint = serving_checkpoint
     root = Path(__file__).resolve().parents[2]
     result = subprocess.run([
-        sys.executable, str(root / 'scripts/serve_checkpoint.py'),
+        sys.executable, '-m', 'harness_training.cli', 'serve',
         '--checkpoint-path', str(checkpoint), '--dry-run', '--api-key', 'dummy-test-key',
         '--port', '18096',
     ], capture_output=True, text=True, cwd=root, timeout=60)

@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from harness_training.config import TrainingConfig
+from harness_training.config import SFTMethodConfig, TrainingConfig
 from .manifest import ResumeMismatch, differences
 
 
@@ -70,9 +70,12 @@ def validate_manifest(prior: dict, current: dict) -> None:
 def load_progress(checkpoint: Path, prior: dict, config: TrainingConfig, world_size: int) -> DataProgress:
     from harness_training.data.elastic import epoch_order
 
+    method = config.method
+    if not isinstance(method, SFTMethodConfig):
+        raise ValueError(f"Unsupported checkpoint method: {method.name}")
     state = json.loads((checkpoint / "trainer_state.json").read_text())
     count = len(prior["targets"]["train"])
-    global_batch = config.method.batch_size * config.method.gradient_accumulation_steps * world_size
+    global_batch = method.batch_size * method.gradient_accumulation_steps * world_size
     progress_file = checkpoint / "data_progress.json"
     if progress_file.is_file():
         if not (checkpoint / "portable_state.pt").is_file() or not (checkpoint / "resume_manifest.json").is_file():
@@ -95,8 +98,8 @@ def load_progress(checkpoint: Path, prior: dict, config: TrainingConfig, world_s
                     {f"rng_state_{rank}.pth" for rank in range(old_world)})
         if old_world == 0 or {path.name for path in rng} != expected:
             raise ValueError("Cannot determine legacy checkpoint process count from RNG states")
-        method = prior["config"]["method"]
-        old_batch = method["batch_size"] * method["gradient_accumulation_steps"] * old_world
+        saved_method = prior["config"]["method"]
+        old_batch = saved_method["batch_size"] * saved_method["gradient_accumulation_steps"] * old_world
         epochs, updates = divmod(state["global_step"], math.ceil(count / old_batch))
         seed = backend["data_seed"]
         if seed is None:
@@ -109,10 +112,10 @@ def load_progress(checkpoint: Path, prior: dict, config: TrainingConfig, world_s
                                 target_hash=target_hash(prior["targets"]["train"]))
     if progress.global_batch_size != global_batch:
         raise ValueError(f"Keep global batch size {progress.global_batch_size}: world_size * batch_size * gradient_accumulation_steps; got {global_batch}")
-    expected_seed = config.method.backend.data_seed
+    expected_seed = method.backend.data_seed
     if expected_seed is None:
         expected_seed = config.experiment.seed
-    if progress.seed != expected_seed or progress.strategy != config.method.backend.train_sampling_strategy:
+    if progress.seed != expected_seed or progress.strategy != method.backend.train_sampling_strategy:
         raise ValueError("Elastic resume: sampling seed or strategy changed")
     if progress.sample_count != count or progress.target_hash != target_hash(prior["targets"]["train"]):
         raise ValueError("Elastic resume: sample identity changed")

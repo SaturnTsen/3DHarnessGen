@@ -11,24 +11,31 @@ from hydra.core.hydra_config import HydraConfig
 from hydra.types import RunMode
 from omegaconf import DictConfig, OmegaConf
 
-from harness_training.cli import execute
+from harness_training.cli import execute, main as cli_main
 from harness_training.config import StrictConfig, parse_config
 
 
 class CommandConfig(StrictConfig):
-    action: Literal["audit", "prepare", "preview", "train", "check-runtime"]
+    action: Literal["audit", "prepare", "preview", "train", "check-runtime", "check-resume", "smoke", "serve", "eval", "validate-trajectory"]
     limit: int
     split: Literal["train", "validation", "test"]
     render_only: bool
+    encode: bool = False
+    args: list[str] = []
 
 
 @hydra.main(version_base="1.3", config_path="../configs",
-            config_name="exp/3DHarnessBench/sft_view_mix_9b_fsdp")
+            config_name="exp/3DHarnessBench/sft_view_mix_r1_27b")
 def run(composed: DictConfig) -> None:
     runtime = HydraConfig.get()
     command = CommandConfig.model_validate(OmegaConf.to_container(composed.command, resolve=True))
     if command.limit <= 0:
         raise ValueError("command.limit must be positive")
+    if command.action in {"serve", "eval", "validate-trajectory"}:
+        cli_main([command.action, *command.args])
+        return
+    if command.args:
+        raise ValueError("command.args is only used by serve, eval and validate-trajectory")
     directory = Path(next(source.path for source in runtime.runtime.config_sources
                           if source.provider == "main" and source.schema == "file"))
     training = OmegaConf.masked_copy(composed, [str(key) for key in composed if key != "command"])
@@ -39,7 +46,7 @@ def run(composed: DictConfig) -> None:
         # Keep sweep jobs separate even when only a learning rate is varied.
         config.experiment.output_dir /= Path(runtime.sweep.dir).name + f"/job_{runtime.job.num}"
     execute(config, command.action, limit=command.limit, split=command.split,
-            render_only=command.render_only)
+            render_only=command.render_only, encode=command.encode)
 
 
 def main() -> None:

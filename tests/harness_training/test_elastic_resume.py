@@ -82,7 +82,7 @@ def run_training(config, path, world, overrides=()):
     command = [sys.executable]
     if world > 1:
         command += ["-m", "torch.distributed.run", "--standalone", "--nnodes=1", f"--nproc-per-node={world}"]
-    command += ["-m", "scripts.post_train", "train", "--config", str(path), *overrides]
+    command += ["-m", "harness_training.cli", "train", "--config", str(path), *overrides]
     env = {**os.environ, "OMP_NUM_THREADS": "2", "TOKENIZERS_PARALLELISM": "false",
            "CUBLAS_WORKSPACE_CONFIG": ":16:8", "PYTORCH_ALLOC_CONF": "expandable_segments:True"}
     if world == 1:
@@ -178,7 +178,7 @@ def test_legacy_progress_reconstruction_and_global_batch_guard(config, tmp_path)
 
 
 def setup_config(tmp_path, tiny_qwen_path, strategy, quantization):
-    config = load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [
+    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [
         "experiment.scene=Single-view", "model=qwen38_27b",
         f"distributed={strategy}", f"quantization={quantization}", "tracking=wandb",
         "tracking.mode=offline", "method.backend.eval_strategy=no", "method.backend.do_eval=false",
@@ -261,7 +261,7 @@ def test_legacy_single_to_two_gpu_and_back(elastic_qwen_path, tmp_path, strategy
     run_id = json.loads((output / "wandb_run.json").read_text())["id"]
     checkpoint = output / "checkpoints/checkpoint-1"
     assert not (checkpoint / "data_progress.json").exists()
-    destination = load_config(ROOT / "configs/exp/3DHarnessBench/sft_view_mix_9b_fsdp.yaml", [f"distributed={strategy}"])
+    destination = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [f"distributed={strategy}"])
     config.distributed = destination.distributed
     config.method.backend.fsdp = destination.method.backend.fsdp
     config.method.backend.fsdp_config = destination.method.backend.fsdp_config

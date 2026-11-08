@@ -1,7 +1,7 @@
 """Serve a post-training LoRA checkpoint using the project's vLLM installation.
 
 Example:
-    pixi run python scripts/serve_checkpoint.py \
+    pixi run post-train serve \
         --checkpoint-path outputs/post_training/Blender/run/checkpoints/checkpoint-1612 \
         --base-model-path ~/models/Qwen3.5-9B \
         --max-model-len 73728 --port 8000
@@ -21,7 +21,8 @@ import re
 import shutil
 from tempfile import TemporaryDirectory
 
-from harness_training.inference import checkpoint_model_name, checkpoint_snapshot, parse_passthrough
+from harness_training.inference import checkpoint_model_name
+from harness_training.checkpoints import Checkpoint
 
 
 def option_value(arguments: list[str], flag: str) -> str | None:
@@ -37,26 +38,6 @@ def option_value(arguments: list[str], flag: str) -> str | None:
 
 def has_option(arguments: list[str], flag: str) -> bool:
     return any(argument == flag or argument.startswith(flag + "=") for argument in arguments)
-
-
-def read_adapter_config(checkpoint: Path, snapshot: dict) -> dict:
-    source = checkpoint / "adapter_config.json"
-    if source.is_file():
-        return json.loads(source.read_text())
-    from peft import LoraConfig, LoraRuntimeConfig
-
-    model = snapshot["model"]
-    if model["tuning"] != "lora":
-        raise ValueError("Only LoRA/QLoRA checkpoints are supported")
-    lora = model["lora"]
-    options = dict(lora["backend"])
-    options["runtime_config"] = LoraRuntimeConfig(**options["runtime_config"])
-    options.update(r=lora["rank"], lora_alpha=lora["alpha"], lora_dropout=lora["dropout"],
-                   target_modules=lora["target_modules"], task_type=lora["task_type"], bias=lora["bias"])
-    config = LoraConfig(**options).to_dict()
-    # PEFT's serializer handles sets and enums; use it when exporting the adapter.
-    config["base_model_name_or_path"] = model["path"]
-    return config
 
 
 def normalize_lora_name(name: str) -> str:
@@ -92,7 +73,7 @@ def extract_fsdp_adapter(checkpoint: Path, config: dict, cache_root: Path) -> Pa
     from torch.distributed.checkpoint.metadata import TensorStorageMetadata
     from torch.distributed.checkpoint.state_dict_loader import load
 
-    source = checkpoint / "pytorch_model_fsdp_0"
+    source = Checkpoint(checkpoint).model_shards
     fingerprint = hashlib.sha256(str(checkpoint).encode() + json.dumps(
         config, sort_keys=True, default=lambda value: sorted(value),
     ).encode())
@@ -190,15 +171,16 @@ def build_command(args: argparse.Namespace, passthrough: list[str]) -> tuple[lis
     checkpoint = args.checkpoint_path.expanduser().resolve()
     if not checkpoint.is_dir():
         raise ValueError(f"Checkpoint directory does not exist: {checkpoint}")
-    snapshot = checkpoint_snapshot(checkpoint)
-    config = read_adapter_config(checkpoint, snapshot)
+    artifact = Checkpoint(checkpoint)
+    snapshot = artifact.snapshot()
+    config = artifact.adapter_config()
     recorded_base = config.get("base_model_name_or_path") or snapshot.get("model", {}).get("path")
     if args.base_model_path is None and not recorded_base:
         raise ValueError("Cannot determine base model; provide --base-model-path")
     base = (args.base_model_path or Path(recorded_base)).expanduser().resolve()
     if not (base / "config.json").is_file():
         raise ValueError(f"Base config.json is unavailable at {base}; provide --base-model-path with model files")
-    if (checkpoint / "pytorch_model_fsdp_0/.metadata").is_file():
+    if artifact.is_fsdp:
         cache_root = Path(__file__).resolve().parents[1] / "temp/vllm_adapters"
         adapter = extract_fsdp_adapter(checkpoint, config, cache_root)
     else:
@@ -239,18 +221,15 @@ def build_command(args: argparse.Namespace, passthrough: list[str]) -> tuple[lis
     return command + passthrough, name
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--checkpoint-path", type=Path, required=True)
     parser.add_argument("--base-model-path", type=Path)
-    parser.add_argument("--adapter-name", "--model-name", dest="adapter_name",
-                        help="Request this name in the API's model field")
+    parser.add_argument("--adapter-name", "--model-name", dest="adapter_name")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print argv without starting vLLM")
-    args, passthrough = parse_passthrough(parser)
-    try:
-        command, name = build_command(args, passthrough)
-    except (ValueError, OSError, KeyError) as error:
-        parser.exit(1, f"Error: {error}\n")
+
+
+def serve(args: argparse.Namespace, passthrough: list[str]) -> None:
+    command, name = build_command(args, passthrough)
     print(f"Client request model: {name}", flush=True)
     if args.dry_run:
         display = list(command)
@@ -267,7 +246,3 @@ def main() -> None:
         print(json.dumps(display, ensure_ascii=False, indent=2))
         return
     os.execvp(command[0], command)
-
-
-if __name__ == "__main__":
-    main()

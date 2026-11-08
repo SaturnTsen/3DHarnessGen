@@ -8,32 +8,22 @@ import json
 import os
 from pathlib import Path
 import re
-import sys
+
+from harness_training.checkpoints import Checkpoint
 
 
 def checkpoint_model_name(checkpoint_path: Path, model_name: str | None = None) -> str:
     checkpoint = checkpoint_path.expanduser().resolve()
     if not checkpoint.is_dir():
         raise ValueError(f"Checkpoint directory does not exist: {checkpoint}")
-    run = checkpoint.parent.parent if checkpoint.parent.name == "checkpoints" else checkpoint.parent
+    run = Checkpoint(checkpoint).run_dir
     name = model_name or f"{run.name}-{checkpoint.name}"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
         raise ValueError("Model name must contain only letters, digits, dots, underscores and hyphens")
     return name
 
 
-def checkpoint_snapshot(checkpoint_path: Path) -> dict:
-    from pydantic import RootModel
-    from pydantic_yaml import parse_yaml_raw_as
-
-    checkpoint = checkpoint_path.expanduser().resolve()
-    run = checkpoint.parent.parent if checkpoint.parent.name == "checkpoints" else checkpoint.parent
-    source = run / "resolved_config.yaml"
-    return parse_yaml_raw_as(RootModel[dict], source.read_text()).root if source.is_file() else {}
-
-
-def common_parser(description: str, benchmark_root: Path) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=description, allow_abbrev=False)
+def add_common_arguments(parser: argparse.ArgumentParser, benchmark_root: Path) -> None:
     parser.add_argument("--checkpoint-path", type=Path, required=True)
     parser.add_argument("--model-name", "--adapter-name", dest="model_name")
     parser.add_argument("--benchmark-root", type=Path, default=benchmark_root)
@@ -41,7 +31,6 @@ def common_parser(description: str, benchmark_root: Path) -> argparse.ArgumentPa
     parser.add_argument("--output-root", type=Path,
                         help="Results are separated by model name beneath this directory")
     parser.add_argument("--dry-run", action="store_true", help="Print the command without running the benchmark")
-    return parser
 
 
 def client_paths(args: argparse.Namespace, manifest: str) -> tuple[Path, Path, str, str]:
@@ -59,20 +48,13 @@ def reject_options(arguments: list[str], managed: set[str]) -> None:
         raise ValueError(f"Launcher-managed options cannot be passed through: {conflicts}")
 
 
-def parse_passthrough(parser: argparse.ArgumentParser) -> tuple[argparse.Namespace, list[str]]:
-    argv = sys.argv[1:]
-    boundary = argv.index("--") if "--" in argv else len(argv)
-    args, extra = parser.parse_known_args(argv[:boundary])
-    return args, extra + argv[boundary + 1:]
-
-
 def build_harness_command(args: argparse.Namespace, passthrough: list[str]) -> tuple[Path, list[str]]:
     root, output, name, run_name = client_paths(args, "pyproject.toml")
     reject_options(passthrough, {"--agent", "--output-dir", "--base-url", "--model-name", "--context-window"})
     if args.setting in ("single-view", "multi-view") and args.context_window is not None:
         raise ValueError("--context-window is for MCP settings; set the service limit using --max-model-len")
     if args.setting in ("active-visual", "full-3d-interaction") and args.context_window is None:
-        snapshot = checkpoint_snapshot(args.checkpoint_path)
+        snapshot = Checkpoint(args.checkpoint_path).snapshot()
         args.context_window = snapshot.get("template", {}).get("max_length")
         if args.context_window is None:
             raise ValueError("No training length found; MCP requires --context-window matching vLLM --max-model-len")
@@ -106,12 +88,9 @@ def build_mmsi_command(args: argparse.Namespace, passthrough: list[str]) -> tupl
     return root, command + passthrough
 
 
-def launch(parser: argparse.ArgumentParser, builder) -> None:
-    args, passthrough = parse_passthrough(parser)
-    try:
-        root, command = builder(args, passthrough)
-    except (ValueError, OSError) as error:
-        parser.exit(1, f"Error: {error}\n")
+def launch(args: argparse.Namespace, passthrough: list[str]) -> None:
+    builder = build_harness_command if args.benchmark == "harness" else build_mmsi_command
+    root, command = builder(args, passthrough)
     print(f"Client request model: {checkpoint_model_name(args.checkpoint_path, args.model_name)}", flush=True)
     if args.dry_run:
         print(json.dumps({"cwd": str(root), "argv": command}, ensure_ascii=False, indent=2))
@@ -120,16 +99,13 @@ def launch(parser: argparse.ArgumentParser, builder) -> None:
     os.execvp(command[0], command)
 
 
-def main_harness() -> None:
-    parser = common_parser("Run 3DHarnessBench with a checkpoint served by vLLM", Path.home() / "3DHarnessBench")
-    parser.add_argument("--setting", choices=("single-view", "multi-view", "active-visual", "full-3d-interaction"),
-                        default="single-view")
-    parser.add_argument("--context-window", type=int, help="MCP input+output budget; match vLLM --max-model-len")
-    launch(parser, build_harness_command)
-
-
-def main_mmsi() -> None:
-    parser = common_parser("Evaluate a served checkpoint with MMSI-Bench", Path.home() / "spatial_benchs/MMSI-Bench")
-    parser.add_argument("--max-tokens", type=int, default=8192)
-    parser.add_argument("--dataset", choices=("MMSI_Bench", "MMSI_Bench_Circular"), default="MMSI_Bench")
-    launch(parser, build_mmsi_command)
+def add_arguments(commands) -> None:
+    harness = commands.add_parser("harness", help="Evaluate with 3DHarnessBench", allow_abbrev=False)
+    add_common_arguments(harness, Path.home() / "3DHarnessBench")
+    harness.add_argument("--setting", choices=("single-view", "multi-view", "active-visual", "full-3d-interaction"),
+                         default="single-view")
+    harness.add_argument("--context-window", type=int, help="MCP input+output budget; match vLLM --max-model-len")
+    mmsi = commands.add_parser("mmsi", help="Evaluate with MMSI-Bench", allow_abbrev=False)
+    add_common_arguments(mmsi, Path.home() / "spatial_benchs/MMSI-Bench")
+    mmsi.add_argument("--max-tokens", type=int, default=8192)
+    mmsi.add_argument("--dataset", choices=("MMSI_Bench", "MMSI_Bench_Circular"), default="MMSI_Bench")

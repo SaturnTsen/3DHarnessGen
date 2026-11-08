@@ -53,7 +53,7 @@ def launch(config, tmp_path, name="parallel", *, cli=False):
     save_config(config, path)
     reports = tmp_path / name
     command = [sys.executable, "-m", "torch.distributed.run", "--standalone", "--nnodes=1", "--nproc-per-node=4"]
-    command += (["-m", "scripts.post_train", "train", "--config", str(path)] if cli else
+    command += (["-m", "harness_training.cli", "train", "--config", str(path)] if cli else
                 [str(Path(__file__)), str(path), str(reports)])
     environment = {**os.environ, "OMP_NUM_THREADS": "1", "CUDA_VISIBLE_DEVICES": "", "PYTHONPATH": str(ROOT)}
     result = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=60)

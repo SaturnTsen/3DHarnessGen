@@ -11,7 +11,7 @@ import pytest
 from harness_training.inference import (
     build_harness_command, build_mmsi_command, checkpoint_model_name,
 )
-from scripts.serve_checkpoint import option_value
+from harness_training.serving import option_value
 
 
 @pytest.fixture
@@ -112,12 +112,12 @@ def test_circular_dataset_and_output_root(launches):
     assert config['data'][args.dataset]['class'] == 'MMSIBenchCircular'
 
 
-@pytest.mark.parametrize('script', ['run_3dharness_checkpoint.py', 'eval_mmsi_checkpoint.py'])
-def test_client_scripts_dry_run_without_starting_benchmarks(launches, script):
+@pytest.mark.parametrize('benchmark', ['harness', 'mmsi'])
+def test_cli_eval_dry_run_without_starting_benchmarks(launches, benchmark):
     args = launches[1]
     root = Path(__file__).resolve().parents[2]
     result = subprocess.run([
-        sys.executable, str(root / 'scripts' / script), '--checkpoint-path', str(args.checkpoint_path),
+        sys.executable, '-m', 'harness_training.cli', 'eval', benchmark, '--checkpoint-path', str(args.checkpoint_path),
         '--benchmark-root', str(args.benchmark_root), '--dry-run',
         '--limit', '1', '--', '--dry-run',
     ], capture_output=True, text=True, timeout=30)

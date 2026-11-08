@@ -5,7 +5,7 @@ import pytest
 from scripts.export_astra_chat_completions import ArchiveImages
 from scripts.rebuild_astra_contract import Evidence, environment_message, interactive, runtime_sources
 from scripts.recover_interactive_contract import recover
-from tools.validate_trajectory import Trajectory
+from harness_training.data.contract import Trajectory
 
 
 def test_interactive_generation_boundaries_and_tool_images(tmp_path):
