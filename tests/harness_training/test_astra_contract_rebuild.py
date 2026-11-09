@@ -2,9 +2,9 @@ import json
 
 import pytest
 
-from scripts.export_astra_chat_completions import ArchiveImages
-from scripts.rebuild_astra_contract import Evidence, environment_message, interactive, runtime_sources
-from scripts.recover_interactive_contract import recover
+from scripts.build_sft_trajectories.export_astra_chat_completions import ArchiveImages
+from scripts.build_sft_trajectories.rebuild_astra_contract import Evidence, environment_message, interactive, runtime_sources
+from scripts.build_sft_trajectories.recover_interactive_contract import recover
 from harness_training.data.contract import Trajectory
 
 

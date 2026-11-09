@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export one complete multimodal SFT trajectory per iterative-run instance.
 
-Usage: python scripts/build_trajectory.py PATH/TO/run-root
+Usage: pixi run python -m scripts.build_sft_trajectories.build_trajectory PATH/TO/run-root
 The root may be an agent directory or a higher-level Single-view/Multi-view
 directory. Existing trajectories are replaced from process.json and attempt
 JSON files. Every trajectory starts with the supplied prompt.txt.
@@ -15,10 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-if __package__:
-    from .sft_common import ImageStore, make_row, read_prompt, write_trajectory
-else:
-    from sft_common import ImageStore, make_row, read_prompt, write_trajectory
+from .sft_common import ImageStore, make_row, read_prompt, write_trajectory
 
 
 def read_json(path: Path):

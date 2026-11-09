@@ -103,7 +103,7 @@ serve 当前支持 LoRA/QLoRA 的标准适配器和 FSDP 适配器导出；使�
 轨迹清洗仍使用独立的数据运维模块：
 
 ```bash
-pixi run python -m scripts.clean_astra_trajectories
+pixi run python -m scripts.build_sft_trajectories.clean_astra_trajectories
 ```
 
 清洗器保留 v3 契约，输出到 `data/trajectory_cleaned/`，不覆盖已有输出。历史旧格式导出器不是当前训练入口。

@@ -23,7 +23,7 @@
 
 v2 不兼容 v1 平铺工具池、available_tools 覆盖或 available_tool_indices 子集选择，也不自动兼容旧 ShareGPT 或缺字段的 messages；audit 给出交付缺项，不在读取时猜测迁移。旧数据与图片保持不变，补齐由合作者负责。
 
-现有 `scripts/rebuild_astra_contract.py` 和 `scripts/recover_interactive_contract.py` 仍按旧契约构造记录，尚未迁移；其输出不能直接交给 v2 校验器。本次不执行这些脚本或重写数据。后续迁移须同时更新其契约相关测试，不能用旧格式测试代表 v2 验收。
+现有 `scripts/build_sft_trajectories/rebuild_astra_contract.py` 和 `scripts/build_sft_trajectories/recover_interactive_contract.py` 仍按旧契约构造记录，尚未迁移；其输出不能直接交给 v2 校验器。本次不执行这些脚本或重写数据。后续迁移须同时更新其契约相关测试，不能用旧格式测试代表 v2 验收。
 
 ## 2. 工具 build 与双向适配
 

@@ -1,6 +1,6 @@
-"""Rebuild Astra archives using POST_TRAIN_TRAJECTORY_CONTRACT.md.
+"""Rebuild Astra archives using harness_training.data.contract.
 
-Run with Pixi: python -m scripts.rebuild_astra_contract [--instances NAME ...]
+Run with Pixi: pixi run python -m scripts.build_sft_trajectories.rebuild_astra_contract [--instances NAME ...]
 All outputs are staged and audited before publication. Original archives are
 read only; replaced delivery directories are backed up under project temp/.
 """
@@ -19,8 +19,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from scripts.build_trajectory import image_refs, prompts, resolve_recorded, retry_prompt
-from scripts.export_astra_chat_completions import ArchiveImages, content_parts, read_json
+from .build_trajectory import image_refs, prompts, resolve_recorded, retry_prompt
+from .export_astra_chat_completions import ArchiveImages, content_parts, read_json
 from harness_training.data.contract import Trajectory, load_json
 
 
@@ -377,7 +377,7 @@ def main():
     parser.add_argument("--interactive-context", type=Path, required=True)
     parser.add_argument("--session-root", type=Path, required=True)
     args = parser.parse_args()
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     bench = root / "3DHarnessBench"
     work = Path(tempfile.mkdtemp(prefix="astra-contract-", dir=root / "temp"))
     evidence, pending, reports = Evidence(), [], []

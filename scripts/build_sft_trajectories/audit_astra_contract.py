@@ -1,6 +1,6 @@
 """Audit every Astra delivery against the contract, source hashes and images.
 
-Run with ``pixi run python -m scripts.audit_astra_contract``. This command only
+Run with ``pixi run python -m scripts.build_sft_trajectories.audit_astra_contract``. This command only
 reads trajectories, original logs and images; it writes audit reports after all
 instances have passed. It never executes recorded tools or loads model weights.
 """
@@ -13,13 +13,13 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.rebuild_astra_contract import SETTINGS, Evidence, audit, environment_message, indexed_tools
+from .rebuild_astra_contract import SETTINGS, Evidence, audit, environment_message, indexed_tools
 from harness_training.data.contract import load_json
 
 
 def main():
-    root = Path(__file__).resolve().parents[1]
-    contract = root / "docs/POST_TRAIN_TRAJECTORY_CONTRACT.md"
+    root = Path(__file__).resolve().parents[2]
+    contract = root / "harness_training/data/contract.py"
     evidence = Evidence()
     contract_source = evidence.source(contract, root, "/")
     checked_at = datetime.now(timezone.utc).isoformat()
@@ -97,7 +97,7 @@ def main():
     evidence.verify()
     destination = root / "3DHarnessBench/metadata/trajectory_contract_v3/audit"
     for output, report in reports:
-        report["verification"] = {**contract_source, "path": "docs/POST_TRAIN_TRAJECTORY_CONTRACT.md",
+        report["verification"] = {**contract_source, "path": contract.relative_to(root).as_posix(),
                                   "path_base": "project_root"}
         raw = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
         (output / "audit_report.json").write_text(raw)

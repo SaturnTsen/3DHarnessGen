@@ -8,12 +8,12 @@ exports data only; it does not implement or launch SFT training.
 
 ```bash
 # Iterative runs: one instance, a model directory, or the entire runs tree.
-python scripts/build_trajectory.py 3DHarnessBench/runs/Single-view
-python scripts/build_trajectory.py 3DHarnessBench/runs/Multi-view
+pixi run python -m scripts.build_sft_trajectories.build_trajectory 3DHarnessBench/runs/Single-view
+pixi run python -m scripts.build_sft_trajectories.build_trajectory 3DHarnessBench/runs/Multi-view
 
 # Interactive runs: one instance, a model/setting directory, or the runs tree.
-python scripts/export_sft_trajectories.py ActiveVisual/gpt-6-astra
-python scripts/export_sft_trajectories.py Full3DInteraction
+pixi run python -m scripts.build_sft_trajectories.export_sft_trajectories ActiveVisual/gpt-6-astra
+pixi run python -m scripts.build_sft_trajectories.export_sft_trajectories Full3DInteraction
 ```
 
 Both commands accept `--dry-run` and `--prompt-file PATH`. The latter overrides

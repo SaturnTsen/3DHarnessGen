@@ -12,12 +12,9 @@ from typing import Iterable
 
 from harness_training.types import JsonValue
 
-if __package__:
-    from .sft_common import DATA_URI_RE, ImageStore, make_row, read_prompt, write_trajectory
-else:
-    from sft_common import DATA_URI_RE, ImageStore, make_row, read_prompt, write_trajectory
+from .sft_common import DATA_URI_RE, ImageStore, make_row, read_prompt, write_trajectory
 
-RUNS_ROOT = Path(__file__).resolve().parent.parent / "3DHarnessBench" / "runs"
+RUNS_ROOT = Path(__file__).resolve().parents[2] / "3DHarnessBench" / "runs"
 INTERNAL_CHANNELS = {"analysis", "reasoning", "thinking", "internal"}
 
 

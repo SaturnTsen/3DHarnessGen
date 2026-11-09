@@ -13,8 +13,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from scripts.export_astra_chat_completions import ArchiveImages
-from scripts.rebuild_astra_contract import Evidence, attach_additional_tools, audit, indexed_tools, interactive, step
+from .export_astra_chat_completions import ArchiveImages
+from .rebuild_astra_contract import Evidence, attach_additional_tools, audit, indexed_tools, interactive, step
 from harness_training.data.contract import Trajectory
 
 
@@ -70,7 +70,7 @@ def main():
             raise ValueError("Recovery requires one fresh, uncompacted turn per session")
         if any(record["type"] == "compacted" for record in records):
             raise ValueError("Compaction requires explicit visible-context reconstruction")
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     work = Path(tempfile.mkdtemp(prefix="interactive-recovery-", dir=root / "temp"))
     stage = work / "stage"
     stage.mkdir()

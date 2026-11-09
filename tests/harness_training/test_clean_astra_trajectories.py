@@ -9,7 +9,7 @@ from PIL import Image
 from harness_training.config import DataConfig
 from harness_training.data.contract import AdditionalTools, Trajectory
 from harness_training.data.trajectory import TrajectoryDataset
-from scripts.clean_astra_trajectories import (
+from scripts.build_sft_trajectories.clean_astra_trajectories import (
     UNUSED_TOOLS, clean_dataset, clean_targets, failure_response, failure_text, image_blocks,
     prune_declaration, used_tool_names,
 )

@@ -1,7 +1,7 @@
 """Clean GPT-6-Astra trajectories without changing their source archives.
 
 Run from the repository root with:
-    pixi run python -m scripts.clean_astra_trajectories
+    pixi run python -m scripts.build_sft_trajectories.clean_astra_trajectories
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """Rebuild one Astra instance in all four settings from archived session logs.
 
 Run from the project root with Pixi:
-    pixi run python -m scripts.export_astra_chat_completions AgaveMonocotFactory
+    pixi run python -m scripts.build_sft_trajectories.export_astra_chat_completions AgaveMonocotFactory
 
 Each JSONL row is one independent session in Chat Completions request format.
 Local image URLs are relative to the JSONL; provenance is saved under temp/.
@@ -19,8 +19,8 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-from scripts.build_trajectory import image_refs, prompts, resolve_recorded, retry_prompt
-from scripts.sft_common import DATA_URI_RE, ImageStore
+from .build_trajectory import image_refs, prompts, resolve_recorded, retry_prompt
+from .sft_common import DATA_URI_RE, ImageStore
 
 
 class ArchiveImages(ImageStore):
@@ -310,7 +310,7 @@ def main():
     args = parser.parse_args()
     if Path(args.instance).name != args.instance:
         parser.error("instance must be a single directory name")
-    bench = Path(__file__).resolve().parents[1] / "3DHarnessBench"
+    bench = Path(__file__).resolve().parents[2] / "3DHarnessBench"
     temp = bench / "temp"
     temp.mkdir(exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="astra-chat-completions-", dir=temp))
