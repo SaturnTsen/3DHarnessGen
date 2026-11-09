@@ -113,11 +113,11 @@ def test_circular_dataset_and_output_root(launches):
 
 
 @pytest.mark.parametrize('benchmark', ['harness', 'mmsi'])
-def test_cli_eval_dry_run_without_starting_benchmarks(launches, benchmark):
+def test_script_eval_dry_run_without_starting_benchmarks(launches, benchmark):
     args = launches[1]
     root = Path(__file__).resolve().parents[2]
     result = subprocess.run([
-        sys.executable, '-m', 'harness_training.cli', 'eval', benchmark, '--checkpoint-path', str(args.checkpoint_path),
+        sys.executable, '-m', "harness_training.cli.evaluate", benchmark, '--checkpoint-path', str(args.checkpoint_path),
         '--benchmark-root', str(args.benchmark_root), '--dry-run',
         '--limit', '1', '--', '--dry-run',
     ], capture_output=True, text=True, timeout=30)

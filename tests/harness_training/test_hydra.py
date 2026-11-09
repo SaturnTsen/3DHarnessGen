@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -28,7 +27,7 @@ def test_experiment_config_uses_only_common_defaults(tmp_path, filename):
     raw = OmegaConf.load(source)
     assert isinstance(raw, DictConfig)
     groups = {"data", "template", "model", "method", "scene", "tuning", "quantization",
-              "distributed", "tracking", "command"}
+              "distributed", "tracking"}
     assert source.read_text().startswith("# @package _global_\n")
     for entry in raw.defaults:
         assert entry == "_self_" or isinstance(entry, DictConfig) and set(entry).issubset(
@@ -156,29 +155,10 @@ def test_distributed_requires_explicit_launcher(config):
     assert trainer.model._processor is None
 
 
-def test_native_hydra_multirun_keeps_outputs_separate(tmp_path):
+def test_script_accepts_hydra_overrides(tmp_path):
     write_trajectory(tmp_path / "runs")
     result = subprocess.run([
-        sys.executable, "-m", "harness_training.hydra_cli", "--multirun",
-        "--config-name", "exp/3DCodeVerse/sft_blender_geo_r1_9b",
-        "experiment.scene=Single-view", "data.files=null", "data.image_root=null",
-        "distributed=single", "tracking=disabled",
-        "command.action=prepare", f"data.runs_root={tmp_path / 'runs'}",
-        f"experiment.output_dir={tmp_path / 'output'}", "method.learning_rate=0.001,0.002",
-        f"hydra.sweep.dir={tmp_path / 'sweep'}",
-    ], cwd=tmp_path, env={**os.environ, "PYTHONPATH": str(ROOT)},
-        capture_output=True, text=True, timeout=60)
-    assert result.returncode == 0, result.stdout + result.stderr
-    for index in [0, 1]:
-        report = json.loads((tmp_path / f"output/sweep/job_{index}/data_report.json").read_text())
-        assert report["samples"]["train"] == 2
-        assert (tmp_path / f"sweep/{index}/.hydra/config.yaml").is_file()
-
-
-def test_legacy_cli_accepts_hydra_overrides(tmp_path):
-    write_trajectory(tmp_path / "runs")
-    result = subprocess.run([
-        sys.executable, "-m", "harness_training.cli", "audit", "--config",
+        sys.executable, "-m", "harness_training.cli.training", "audit", "--config",
         str(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml"),
         "experiment.scene=Single-view", "data.files=null", "data.image_root=null", f"data.runs_root={tmp_path / 'runs'}",
         "distributed=single", "tracking=disabled",

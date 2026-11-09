@@ -79,11 +79,11 @@ def test_failures_are_before_preflight_and_do_not_overwrite_run(saved_resume, ch
     assert report["status"] == "failed" and report["processor_loaded"] is False
 
 
-def test_cli_check_resume_and_auto_load_neither_processor_nor_weights(saved_resume, tmp_path):
+def test_script_check_resume_and_auto_load_neither_processor_nor_weights(saved_resume, tmp_path):
     config, _ = saved_resume
     path = tmp_path / "config.yaml"
     save_config(config, path)
-    result = subprocess.run([sys.executable, "-m", "harness_training.cli", "check-resume", "--config", str(path),
+    result = subprocess.run([sys.executable, "-m", "harness_training.cli.training", "check-resume", "--config", str(path),
                              "method.resume_from=auto"], cwd=ROOT, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
     assert '"status": "passed"' in result.stdout

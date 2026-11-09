@@ -161,11 +161,11 @@ def test_fsdp_config_can_come_from_training_snapshot(serving_checkpoint):
     assert all(torch.equal(exported[name], value) for name, value in expected.items())
 
 
-def test_cli_dry_run_does_not_expose_api_key(serving_checkpoint):
+def test_script_dry_run_does_not_expose_api_key(serving_checkpoint):
     _, checkpoint = serving_checkpoint
     root = Path(__file__).resolve().parents[2]
     result = subprocess.run([
-        sys.executable, '-m', 'harness_training.cli', 'serve',
+        sys.executable, '-m', "harness_training.cli.serve",
         '--checkpoint-path', str(checkpoint), '--dry-run', '--api-key', 'dummy-test-key',
         '--port', '18096',
     ], capture_output=True, text=True, cwd=root, timeout=60)

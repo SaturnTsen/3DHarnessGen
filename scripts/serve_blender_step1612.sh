@@ -3,7 +3,7 @@
 set -euo pipefail
 
 gen_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-exec pixi run --manifest-path "$gen_root/pixi.toml" post-train serve \
+exec pixi run --manifest-path "$gen_root/pixi.toml" serve \
   --checkpoint-path "$gen_root/outputs/post_training/Blender/qwen35_9b_qlora_fsdp_mix_epoch1_v1/checkpoints/checkpoint-1612" \
   --base-model-path "$HOME/models/Qwen3.5-9B" \
   --adapter-name blender-9b-step1612 \

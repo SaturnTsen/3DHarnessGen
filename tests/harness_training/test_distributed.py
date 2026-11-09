@@ -71,7 +71,7 @@ def test_gpu_training_save_resume(tiny_qwen_path, tmp_path, strategy, quantizati
     command = [sys.executable]
     if devices > 1:
         command += ["-m", "torch.distributed.run", "--standalone", "--nnodes=1", "--nproc-per-node=2"]
-    command += ["-m", "harness_training.cli", "train", "--config", str(path)]
+    command += ["-m", "harness_training.cli.training", "train", "--config", str(path)]
     env = {**os.environ, "OMP_NUM_THREADS": "2", "TOKENIZERS_PARALLELISM": "false"}
     if devices == 1:
         env["CUDA_VISIBLE_DEVICES"] = os.environ.get("CUDA_VISIBLE_DEVICES", "0").split(",")[0]

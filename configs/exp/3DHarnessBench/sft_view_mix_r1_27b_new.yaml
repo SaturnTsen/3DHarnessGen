@@ -13,7 +13,6 @@ defaults:
 - /quantization: none
 - /distributed: fsdp
 - /tracking: wandb
-- /command: default
 - _self_
 schema_version: 1
 experiment:

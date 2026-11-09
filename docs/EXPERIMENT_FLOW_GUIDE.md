@@ -4,21 +4,19 @@
 
 ## 入口
 
-`pixi run post-train`、安装后的 `post-train`、`python -m harness_training.cli` 使用同一个 CLI。
-`post-train-distributed` 由 torchrun 启动相同模块。原生 Hydra 入口是配置展开/批量运行的适配层，使用相同的动作分发。
+各动作由 Pixi 直接启动对应脚本，例如 `pixi run training train`、`pixi run training audit` 和 `pixi run serve`。
+多进程训练由 torchrun 启动 `harness_training.cli.training`；Hydra 只负责配置组合。
 
 ```text
-cli.main()
-  ├─ 解析命令及配置覆盖
-  ├─ load_config()：Hydra 组合 → Pydantic 校验 → 路径解析
-  └─ execute()
-      ├─ train / check-resume：解析 auto 恢复请求
-      ├─ audit / prepare / preview：数据检查和预览
-      ├─ smoke：少量记录检查，可选 Processor 编码
-      └─ train：Trainer.run()
+pixi run training train
+  └─ harness_training/cli/training.py:main()
+      ├─ 解析 --config 和 Hydra 覆盖项
+      ├─ load_config()：组合 → 校验 → 路径解析
+      ├─ resolve_resume()：解析 auto 恢复请求
+      └─ Trainer(config).run()
 ```
 
-serve、eval 和 validate-trajectory 也从 CLI 分发，但不先构造训练 Trainer。
+数据检查、准备、预览、训练与恢复检查都在 `harness_training/cli/training.py`；服务、评估、轨迹校验分别由各自脚本调用包内实现。
 
 ## 训练主流程
 
@@ -41,7 +39,7 @@ Trainer(config)
 
 优先阅读：
 
-1. `harness_training/cli.py`：请求怎样变成一次操作。
+1. `harness_training/cli/training.py`：训练参数与配置怎样交给 Trainer。
 2. `harness_training/training/trainer.py`：项目怎样组织一次训练。
 3. `harness_training/training/methods/base.py`：训练方法接收的运行上下文与恢复契约。
 4. `harness_training/training/methods/sft.py`：SFT 怎样配置和调用后端。

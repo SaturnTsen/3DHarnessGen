@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 
@@ -21,16 +20,6 @@ def checkpoint_model_name(checkpoint_path: Path, model_name: str | None = None) 
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
         raise ValueError("Model name must contain only letters, digits, dots, underscores and hyphens")
     return name
-
-
-def add_common_arguments(parser: argparse.ArgumentParser, benchmark_root: Path) -> None:
-    parser.add_argument("--checkpoint-path", type=Path, required=True)
-    parser.add_argument("--model-name", "--adapter-name", dest="model_name")
-    parser.add_argument("--benchmark-root", type=Path, default=benchmark_root)
-    parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
-    parser.add_argument("--output-root", type=Path,
-                        help="Results are separated by model name beneath this directory")
-    parser.add_argument("--dry-run", action="store_true", help="Print the command without running the benchmark")
 
 
 def client_paths(args: argparse.Namespace, manifest: str) -> tuple[Path, Path, str, str]:
@@ -86,26 +75,3 @@ def build_mmsi_command(args: argparse.Namespace, passthrough: list[str]) -> tupl
                "--config", str(path), "--work-dir", str(output), "--api-nproc", "4",
                "--judge", "exact_matching", "--reuse"]
     return root, command + passthrough
-
-
-def launch(args: argparse.Namespace, passthrough: list[str]) -> None:
-    builder = build_harness_command if args.benchmark == "harness" else build_mmsi_command
-    root, command = builder(args, passthrough)
-    print(f"Client request model: {checkpoint_model_name(args.checkpoint_path, args.model_name)}", flush=True)
-    if args.dry_run:
-        print(json.dumps({"cwd": str(root), "argv": command}, ensure_ascii=False, indent=2))
-        return
-    os.chdir(root)
-    os.execvp(command[0], command)
-
-
-def add_arguments(commands) -> None:
-    harness = commands.add_parser("harness", help="Evaluate with 3DHarnessBench", allow_abbrev=False)
-    add_common_arguments(harness, Path.home() / "3DHarnessBench")
-    harness.add_argument("--setting", choices=("single-view", "multi-view", "active-visual", "full-3d-interaction"),
-                         default="single-view")
-    harness.add_argument("--context-window", type=int, help="MCP input+output budget; match vLLM --max-model-len")
-    mmsi = commands.add_parser("mmsi", help="Evaluate with MMSI-Bench", allow_abbrev=False)
-    add_common_arguments(mmsi, Path.home() / "spatial_benchs/MMSI-Bench")
-    mmsi.add_argument("--max-tokens", type=int, default=8192)
-    mmsi.add_argument("--dataset", choices=("MMSI_Bench", "MMSI_Bench_Circular"), default="MMSI_Bench")

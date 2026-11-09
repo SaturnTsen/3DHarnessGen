@@ -124,7 +124,7 @@ def test_fsdp_qlora_transfer_between_mix_configs(hybrid_model_path, tmp_path):
         path = tmp_path / f"{task}.yaml"
         save_config(config, path)
         command = [sys.executable, "-m", "torch.distributed.run", "--standalone", "--nnodes=1",
-                   "--nproc-per-node=2", "-m", "harness_training.cli", "train", "--config", str(path)]
+                   "--nproc-per-node=2", "-m", "harness_training.cli.training", "train", "--config", str(path)]
         with (tmp_path / f"{task}.log").open("w") as log:
             result = subprocess.run(command, cwd=root, stdout=log, stderr=subprocess.STDOUT,
                                     env={**os.environ, "OMP_NUM_THREADS": "2",

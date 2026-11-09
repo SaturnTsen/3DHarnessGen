@@ -1,7 +1,6 @@
 # checkpoint 服务与评估
 
-统一入口为 `pixi run post-train serve` 和 `pixi run post-train eval <harness|mmsi>`。
-安装后的 `post-train` 和 `python -m harness_training.cli` 使用相同接口。不再从 scripts 启动这些动作。
+直接使用 `pixi run serve` 和 `pixi run eval <harness|mmsi>`，分别执行 `harness_training/cli/serve.py` 与 `harness_training/cli/evaluate.py`。
 
 ## 服务
 
@@ -14,13 +13,13 @@ CKPT=~/3DHarnessGen/outputs/post_training/View-mix/qwen38_27b_qlora_fsdp_epoch1_
 校验并显示命令：
 
 ```bash
-pixi run post-train serve --checkpoint-path "$CKPT" --base-model-path ~/models/Qwen3.8-27B --dry-run
+pixi run serve --checkpoint-path "$CKPT" --base-model-path ~/models/Qwen3.8-27B --dry-run
 ```
 
 启动服务：
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 pixi run post-train serve \
+CUDA_VISIBLE_DEVICES=0,1 pixi run serve \
   --checkpoint-path "$CKPT" \
   --base-model-path ~/models/Qwen3.8-27B \
   --tensor-parallel-size 2 --max-model-len 49152 \
@@ -42,8 +41,8 @@ GPU 数量、显存与长度预算需要按实验机条件设置；本次重构�
 服务启动后，在另一个终端使用同一 checkpoint 和服务名称：
 
 ```bash
-pixi run post-train eval harness --checkpoint-path "$CKPT" --setting single-view --dry-run
-pixi run post-train eval mmsi --checkpoint-path "$CKPT" --dry-run
+pixi run eval harness --checkpoint-path "$CKPT" --setting single-view --dry-run
+pixi run eval mmsi --checkpoint-path "$CKPT" --dry-run
 ```
 
 去掉 `--dry-run` 才会执行 benchmark。`--benchmark-root` 指定外部工程位置，使用那个工程已有的 Pixi 环境；`--base-url` 默认 `http://127.0.0.1:8000/v1`。

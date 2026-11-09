@@ -1,7 +1,7 @@
 """Serve a post-training LoRA checkpoint using the project's vLLM installation.
 
 Example:
-    pixi run post-train serve \
+    pixi run serve \
         --checkpoint-path outputs/post_training/Blender/run/checkpoints/checkpoint-1612 \
         --base-model-path ~/models/Qwen3.5-9B \
         --max-model-len 73728 --port 8000
@@ -15,7 +15,6 @@ import argparse
 from contextlib import ExitStack
 import hashlib
 import json
-import os
 from pathlib import Path
 import re
 import shutil
@@ -219,30 +218,3 @@ def build_command(args: argparse.Namespace, passthrough: list[str]) -> tuple[lis
                 "min_pixels": template["min_image_pixels"], "max_pixels": template["max_image_pixels"],
             })]
     return command + passthrough, name
-
-
-def add_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--checkpoint-path", type=Path, required=True)
-    parser.add_argument("--base-model-path", type=Path)
-    parser.add_argument("--adapter-name", "--model-name", dest="adapter_name")
-    parser.add_argument("--dry-run", action="store_true", help="Validate and print argv without starting vLLM")
-
-
-def serve(args: argparse.Namespace, passthrough: list[str]) -> None:
-    command, name = build_command(args, passthrough)
-    print(f"Client request model: {name}", flush=True)
-    if args.dry_run:
-        display = list(command)
-        redact = False
-        for index, argument in enumerate(display):
-            if redact and not argument.startswith("--"):
-                display[index] = "<redacted>"
-                continue
-            redact = False
-            if argument == "--api-key":
-                redact = True
-            if argument.startswith("--api-key="):
-                display[index] = "--api-key=<redacted>"
-        print(json.dumps(display, ensure_ascii=False, indent=2))
-        return
-    os.execvp(command[0], command)

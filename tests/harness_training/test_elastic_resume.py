@@ -82,7 +82,7 @@ def run_training(config, path, world, overrides=()):
     command = [sys.executable]
     if world > 1:
         command += ["-m", "torch.distributed.run", "--standalone", "--nnodes=1", f"--nproc-per-node={world}"]
-    command += ["-m", "harness_training.cli", "train", "--config", str(path), *overrides]
+    command += ["-m", "harness_training.cli.training", "train", "--config", str(path), *overrides]
     env = {**os.environ, "OMP_NUM_THREADS": "2", "TOKENIZERS_PARALLELISM": "false",
            "CUBLAS_WORKSPACE_CONFIG": ":16:8", "PYTORCH_ALLOC_CONF": "expandable_segments:True"}
     if world == 1:

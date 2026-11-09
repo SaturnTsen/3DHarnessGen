@@ -24,10 +24,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8,<10"]
 
-[project.scripts]
-post-train = "harness_training.cli:main"
-post-train-hydra = "harness_training.hydra_cli:main"
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["harness_training*"]

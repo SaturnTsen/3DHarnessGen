@@ -77,7 +77,7 @@ def test_mix_task_torchrun_training_eval_save_resume(task, devices, hybrid_model
             "configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml")
     command = [
         "pixi", "run", "python", "-m", "torch.distributed.run", "--standalone", "--nnodes=1",
-        f"--nproc-per-node={devices}", "-m", "harness_training.cli", "train", "--config", config,
+        f"--nproc-per-node={devices}", "-m", "harness_training.cli.training", "train", "--config", config,
         f"model.path={hybrid_model_path}", f"data.runs_root={runs}", "data.files=null", "data.image_root=null", f"experiment.output_dir={output}",
         "tracking=disabled", "method.save_steps=1", "method.eval_steps=1",
         "method.warmup_ratio=0",

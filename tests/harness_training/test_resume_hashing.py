@@ -46,19 +46,19 @@ def worker(config_path, report_dir):
     (path / f"rank-{workers.rank}.json").write_text(json.dumps(result))
 
 
-def launch(config, tmp_path, name="parallel", *, cli=False):
+def launch(config, tmp_path, name="parallel", *, training_script=False):
     config.distributed.strategy = "ddp"
     config.method.gradient_accumulation_steps = 2
     path = tmp_path / f"{name}.yaml"
     save_config(config, path)
     reports = tmp_path / name
     command = [sys.executable, "-m", "torch.distributed.run", "--standalone", "--nnodes=1", "--nproc-per-node=4"]
-    command += (["-m", "harness_training.cli", "train", "--config", str(path)] if cli else
+    command += (["-m", "harness_training.cli.training", "train", "--config", str(path)] if training_script else
                 [str(Path(__file__)), str(path), str(reports)])
     environment = {**os.environ, "OMP_NUM_THREADS": "1", "CUDA_VISIBLE_DEVICES": "", "PYTHONPATH": str(ROOT)}
     result = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, timeout=60)
     (tmp_path / f"{name}.log").write_text(result.stdout + result.stderr)
-    if cli:
+    if training_script:
         return result
     assert result.returncode == 0, result.stdout + result.stderr
     return [json.loads((reports / f"rank-{rank}.json").read_text()) for rank in range(4)], result.stdout
@@ -128,7 +128,7 @@ def test_actual_ddp_train_rejects_changed_source_before_preflight(saved_resume, 
     config, _ = saved_resume
     path = next(config.data.runs_root.rglob("reference.png"))
     path.write_bytes(path.read_bytes() + b"changed")
-    result = launch(config, tmp_path, cli=True)
+    result = launch(config, tmp_path, training_script=True)
     assert result.returncode != 0
     output = result.stdout + result.stderr
     assert "[resume] 核对恢复源文件摘要" in output
