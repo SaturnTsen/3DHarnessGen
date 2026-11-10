@@ -1,6 +1,13 @@
 # R10–R15 重构结果
 
+> 历史记录：文中的旧训练器、方法层与 checkpoint 模块已在后续重组中删除，当前结构见 [实验主流程阅读顺序](EXPERIMENT_FLOW_GUIDE.md)。
+
+
 日期：2026-11-08。对应 [源码审查报告](CODE_REVIEW_2026-11-08.md)。本轮允许破坏性修改，旧脚本入口已删除。
+
+后续变更（2026-11-09）：按项目职责要求，已移除下文历史记录中的评估入口、`inference.py` 及外部 benchmark 启动测试。checkpoint 对外使用只保留 `pixi run serve`，当前命令见 [README](../README.md)；以下保留本轮重构时的记录。
+
+同日后续：已移除断点恢复、自动恢复及进程数变化后的恢复实现，相关文件和函数见 [清理清单](resume-removal.md)。下文恢复相关内容为历史记录。
 
 | 编号 | 完成的改动 |
 | --- | --- |
@@ -40,4 +47,4 @@ Pixi 按业务模块启动脚本；训练相关动作由 `harness_training/cli/t
 
 审查中的评估结果身份冲突、跨轮对象划分漂移、旧数据导出器覆盖风险、checkpoint 分片完整性检查等其他编号的问题不包含在 R10–R15 中，不能据本轮结果视为已解决。当前配置名称沿用合作者整理后的文件，没有恢复旧命名或改写实验参数。
 
-继续修改实验主流程时，按 [实验流程阅读指南](EXPERIMENT_FLOW_GUIDE.md) 从 `harness_training.cli.training.main → Trainer.run → SFTMethod.run` 阅读。
+继续修改实验主流程时，按 [实验流程阅读指南](EXPERIMENT_FLOW_GUIDE.md) 从 `harness_training.cli.training.main → SFTTrainer.run` 阅读。

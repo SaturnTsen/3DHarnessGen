@@ -1,4 +1,4 @@
-"""Carry trained adapters into another dataset with a fresh training state."""
+P"""Carry trained adapters into another dataset with a fresh training state."""
 
 import json
 import os
@@ -10,13 +10,15 @@ import pytest
 
 from harness_training.config import load_config, save_config
 from harness_training.models.qwen import QwenModel
-from harness_training.training.trainer import Trainer
+from harness_training.trainers.sft_trainer import SFTTrainer
 from test_mix_distributed import hybrid_model_path, write_mix_fixture
 from test_templates import interactive_record
+from test_serve_checkpoint import digest_files
+from harness_training.utils.serving import extract_fsdp_adapter
 
 
 @pytest.mark.parametrize("source_kind", ["checkpoint", "final"])
-def test_adapter_transfer_and_new_stage_resume(config, tiny_qwen_path, tmp_path, source_kind):
+def test_adapter_transfer_starts_fresh_training(config, tiny_qwen_path, tmp_path, source_kind):
     import torch
     from peft import get_peft_model_state_dict
     from safetensors.torch import load_file
@@ -36,7 +38,7 @@ def test_adapter_transfer_and_new_stage_resume(config, tiny_qwen_path, tmp_path,
     config.method.backend.eval_strategy = "no"
     config.method.backend.do_eval = False
     config.method.backend.disable_tqdm = True
-    Trainer(config).run()
+    SFTTrainer(config).run()
     original_output = config.experiment.output_dir
     source = original_output / ("checkpoints/checkpoint-2" if source_kind == "checkpoint" else "final")
     saved = load_file(source / "adapter_model.safetensors")
@@ -68,9 +70,9 @@ def test_adapter_transfer_and_new_stage_resume(config, tiny_qwen_path, tmp_path,
     config.tracking.mode = "offline"
     config.method.backend.report_to = ["wandb"]
     config.tracking.settings.x_disable_stats = True
-    data = Trainer(config).prepare(encode=True)
+    data = SFTTrainer(config).prepare(encode=True)
     assert data.train and all(example.record.row.metadata.scene == "ActiveVisual" for example in data.train)
-    trainer = Trainer(config)
+    trainer = SFTTrainer(config)
     encoded = trainer.template.encode(data.train[1])
     assert encoded["pixel_values"].numel() > 0
     assert (encoded["labels"] == -100).any() and (encoded["labels"] != -100).any()
@@ -85,14 +87,7 @@ def test_adapter_transfer_and_new_stage_resume(config, tiny_qwen_path, tmp_path,
     updated = load_file(output / "final/adapter_model.safetensors")
     assert any(not torch.equal(updated[name], value) for name, value in saved.items())
     assert (source / "adapter_model.safetensors").read_bytes() == original_bytes
-    run_id = json.loads((output / "wandb_run.json").read_text())["id"]
-
-    # Resuming the new stage retains init_from as provenance and restores step 1.
-    config.method.resume_from = checkpoint
-    config.method.max_steps = 2
-    Trainer(config).run()
-    assert json.loads((output / "checkpoints/checkpoint-2/trainer_state.json").read_text())["global_step"] == 2
-    assert json.loads((output / "wandb_run.json").read_text())["id"] == run_id
+    assert json.loads((output / "wandb_run.json").read_text())["id"]
 
 
 def test_fsdp_qlora_transfer_between_mix_configs(hybrid_model_path, tmp_path):
@@ -108,9 +103,11 @@ def test_fsdp_qlora_transfer_between_mix_configs(hybrid_model_path, tmp_path):
         write_mix_fixture(runs, task)
     source = None
     source_config = None
+    original_source = None
+    original_digest = None
     for task in ("view", "interaction"):
-        config = load_config(root / ("configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml" if task == "view" else
-            "configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml"), ["tracking=disabled"])
+        config = load_config(root / ("configs/exp/3DHarnessBench/sft-view_mix-r1-27b.yaml" if task == "view" else
+            "configs/exp/3DHarnessBench/sft-interaciton_cleaned_mix-r2-27b.yaml"), ["tracking=disabled"])
         config.model.path = hybrid_model_path
         config.model.init_from = source
         config.data.runs_root = runs
@@ -130,11 +127,15 @@ def test_fsdp_qlora_transfer_between_mix_configs(hybrid_model_path, tmp_path):
                                     env={**os.environ, "OMP_NUM_THREADS": "2",
                                          "TOKENIZERS_PARALLELISM": "false"}, timeout=300)
         assert result.returncode == 0, (tmp_path / f"{task}.log").read_text()[-16000:]
+        if original_source is not None:
+            assert digest_files(original_source) == original_digest
         source = config.experiment.output_dir / "checkpoints/checkpoint-1"
         assert (source / "pytorch_model_fsdp_0/.metadata").is_file()
         assert json.loads((source / "trainer_state.json").read_text())["global_step"] == 1
         if source_config is None:
             source_config = config
+            original_source = source
+            original_digest = digest_files(source)
             # Compare selectively loaded sharded tensors with the collective final export.
             config.model.init_from = source
             config.model.quantization = None
@@ -143,6 +144,12 @@ def test_fsdp_qlora_transfer_between_mix_configs(hybrid_model_path, tmp_path):
             saved = load_file(config.experiment.output_dir / "final/adapter_model.safetensors")
             assert actual.keys() == saved.keys()
             assert all(torch.equal(actual[name].cpu(), value) for name, value in saved.items())
+            adapter_config = json.loads((config.experiment.output_dir / "final/adapter_config.json").read_text())
+            exported = extract_fsdp_adapter(source, adapter_config, tmp_path / "service_cache")
+            extracted = load_file(exported / "adapter_model.safetensors")
+            assert extracted.keys() == saved.keys()
+            assert all(torch.equal(extracted[name], value) for name, value in saved.items())
+            assert digest_files(source) == original_digest
             del model
             config.model.lora.alpha += 1
             with pytest.raises(ValueError, match="must match the source run"):

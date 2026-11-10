@@ -6,8 +6,8 @@ import pytest
 from pydantic import ValidationError
 
 from harness_training.config import TrainingConfig, load_config
-from harness_training.training.tracking import tracking_session
-from harness_training.training.trainer import Trainer
+from harness_training.tracking import tracking_session
+from harness_training.trainers.sft_trainer import SFTTrainer
 from conftest import read_wandb_records
 
 
@@ -16,14 +16,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.mark.parametrize("scene", ["Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction"])
 def test_scene_defaults_record_online_in_renamed_project(scene):
-    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [f"experiment.scene={scene}"])
+    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml", [f"experiment.scene={scene}"])
     assert config.tracking.mode == "online"
     assert config.tracking.project == "3DHarnessGen"
     assert config.method.backend.report_to == ["wandb"]
 
 
 def enable_tracking(config):
-    selected = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [
+    selected = load_config(ROOT / "configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml", [
         "tracking=wandb", "tracking.mode=offline",
     ])
     config.tracking = selected.tracking
@@ -45,7 +45,7 @@ def test_audit_does_not_start_wandb(config):
     import wandb
 
     enable_tracking(config)
-    assert Trainer(config).audit()["samples"]["train"] == 2
+    assert SFTTrainer(config).audit()["samples"]["train"] == 2
     assert wandb.run is None
     assert not (config.experiment.output_dir / "wandb_run.json").exists()
 
@@ -54,7 +54,7 @@ def test_non_main_process_does_not_start_wandb(config):
     import wandb
 
     enable_tracking(config)
-    with tracking_session(config, None, is_main_process=False):
+    with tracking_session(config, is_main_process=False):
         assert wandb.run is None
     assert not config.experiment.output_dir.exists()
 
@@ -65,7 +65,7 @@ def test_failure_finishes_run_and_restores_environment(config):
     enable_tracking(config)
     before = {key: os.environ.get(key) for key in ("WANDB_LOG_MODEL", "WANDB_WATCH")}
     with pytest.raises(RuntimeError, match="training failed"):
-        with tracking_session(config, None, is_main_process=True):
+        with tracking_session(config, is_main_process=True):
             assert os.environ["WANDB_LOG_MODEL"] == "false"
             wandb.log({"train/global_step": 1, "train/loss": 1.5})
             raise RuntimeError("training failed")
@@ -76,7 +76,7 @@ def test_failure_finishes_run_and_restores_environment(config):
     assert any(record.HasField("exit") and record.exit.exit_code != 0 for record in records)
 
 
-def test_offline_tiny_training_logs_metrics_and_reuses_run_id(config, tiny_qwen_path):
+def test_offline_tiny_training_logs_metrics(config, tiny_qwen_path):
     import wandb
 
     enable_tracking(config)
@@ -101,28 +101,25 @@ def test_offline_tiny_training_logs_metrics_and_reuses_run_id(config, tiny_qwen_
     threads = torch.get_num_threads()
     torch.set_num_threads(2)
     try:
-        Trainer(config).run()
-        first = json.loads((output / "wandb_run.json").read_text())
-        config.method.max_steps = 2
-        config.method.resume_from = output / "checkpoints/checkpoint-1"
-        Trainer(config).run()
+        SFTTrainer(config).run()
     finally:
         torch.set_num_threads(threads)
     assert wandb.run is None
-    assert json.loads((output / "wandb_run.json").read_text())["id"] == first["id"]
+    assert json.loads((output / "wandb_run.json").read_text())["id"]
     paths = list((output / "wandb").glob("offline-run-*/run-*.wandb"))
-    assert len(paths) == 2
+    assert len(paths) == 1
     records = [record for path in paths for record in read_wandb_records(path)]
     history = [{item.key or ".".join(item.nested_key): json.loads(item.value_json) for item in record.history.item}
                for record in records if record.HasField("history")]
     assert any(item.get("train/loss", 0) > 0 and item.get("train/global_step") == 1 for item in history)
-    assert any(item.get("train/global_step") == 2 for item in history)
     assert all("test-local-only-token" not in str(record) for record in records)
     assert not any(record.HasField("artifact") for record in records)
 
 
-def test_resume_requires_saved_wandb_identity(config):
+def test_tracking_rejects_existing_run_metadata(config):
     enable_tracking(config)
-    with pytest.raises(FileNotFoundError):
-        with tracking_session(config, Path("checkpoint"), is_main_process=True):
-            pytest.fail("Should not create a new W&B run when restoring a checkpoint")
+    config.experiment.output_dir.mkdir(parents=True)
+    (config.experiment.output_dir / 'wandb_run.json').write_text('{}')
+    with pytest.raises(ValueError, match='choose another output_dir'):
+        with tracking_session(config, is_main_process=True):
+            pytest.fail('Should not reuse an existing training run')

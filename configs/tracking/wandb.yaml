@@ -11,8 +11,6 @@ tracking:
   - ${distributed.strategy}
   job_type: sft
   run_id: null
-  new_run_resume: never
-  checkpoint_resume: must
   log_model: 'false'
   watch: 'false'
   settings:

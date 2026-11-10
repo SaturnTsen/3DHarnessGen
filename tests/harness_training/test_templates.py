@@ -4,9 +4,10 @@ import pytest
 import torch
 
 from harness_training.data.trajectory import TrajectoryDataset
-from harness_training.templates.base import SampleTooLong, TemplateError
-from harness_training.templates.qwen import QwenTemplate
-from harness_training.training.collator import SFTCollator
+from harness_training.chat_templates.base import SampleTooLong, TemplateError
+from harness_training.chat_templates.qwen import QwenTemplate
+from harness_training.dataloader import SFTDataLoader
+from harness_training.trainers.sft_trainer import SFTTrainer
 
 
 class ProcessorCallCounter:
@@ -94,10 +95,13 @@ def test_target_only_labels_and_padding(config, processor):
     target = processor.tokenizer.decode(target_ids)
     assert "print('first')" in target and "Write a Blender script" not in target
     assert processor.tokenizer.eos_token_id in target_ids
-    batch = SFTCollator(template, processor.tokenizer.pad_token_id, data.train,
-                        label_ignore_index=config.template.label_ignore_index,
-                        attention_padding_value=config.template.attention_padding_value,
-                        token_type_padding_value=config.template.token_type_padding_value)([{"example": e} for e in data.train])
+    config.method.use_cpu = True
+    args = SFTTrainer(config).build_arguments(config.experiment.output_dir)
+    loader = SFTDataLoader(
+        SFTDataLoader.index_dataset(range(len(data.train))), template, data.train,
+        processor.tokenizer.pad_token_id, args=args, batch_size=2, sampler=None, is_training=False,
+    )
+    batch = next(iter(loader))
     assert batch["input_ids"].shape[0] == 2
     assert batch["image_grid_thw"].shape[0] == 2
     assert torch.all(batch["labels"][batch["attention_mask"] == 0] == -100)

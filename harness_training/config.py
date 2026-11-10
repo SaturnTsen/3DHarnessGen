@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
-from typing import Annotated, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Annotated, Generic, Literal, TypeVar
 
 from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, ConfigDict, Field, SerializeAsAny, field_validator, model_validator
 
 from harness_training.types import JsonObject
+
+if TYPE_CHECKING:
+    from peft import LoraConfig
 
 Scene = Literal["Single-view", "Multi-view", "ActiveVisual", "Full3DInteraction"]
 
@@ -47,8 +51,6 @@ class TrackingConfig(StrictConfig):
     tags: list[str]
     job_type: str
     run_id: str | None = Field(pattern=r"^[A-Za-z0-9_-]+$")
-    new_run_resume: Literal["never"]
-    checkpoint_resume: Literal["must"]
     log_model: Literal["false"]
     watch: Literal["false"]
     settings: WandbSettingsConfig
@@ -172,6 +174,19 @@ class LoRAConfig(StrictConfig):
     bias: Literal["none", "all", "lora_only"]
     backend: LoRABackendConfig
 
+    def to_peft(self) -> "LoraConfig":
+        from peft import LoraConfig, LoraRuntimeConfig
+
+        options = self.backend.model_dump(mode="json")
+        options.update(r=self.rank, lora_alpha=self.alpha, lora_dropout=self.dropout,
+                       target_modules=self.target_modules, task_type=self.task_type, bias=self.bias)
+        options["runtime_config"] = LoraRuntimeConfig(**self.backend.runtime_config.model_dump())
+        required = {field.name for field in fields(LoraConfig) if field.init}
+        if options.keys() != required:
+            raise ValueError(f"LoraConfig fields changed: missing={sorted(required - options.keys())}, "
+                             f"unknown={sorted(options.keys() - required)}")
+        return LoraConfig(**options)
+
 
 class LongContextConfig(StrictConfig):
     require_optimized_kernels: bool
@@ -236,6 +251,7 @@ class DatasetPreparationConfig(StrictConfig):
 
 
 class SFTBackendConfig(StrictConfig):
+    resume_from_checkpoint: Literal[None]
     lr_scheduler_type: str
     lr_scheduler_kwargs: JsonObject | str | None
     optim: str
@@ -368,8 +384,6 @@ class SFTTrainerConfig(StrictConfig):
 
 class MethodConfig(StrictConfig, ABC):
     name: str = Field(min_length=1)
-    resume_from: Path | Literal["auto"] | None
-    resume_policy: Literal["strict", "elastic"]
     use_cpu: bool
 
     @abstractmethod
@@ -411,25 +425,6 @@ class SFTMethodConfig(MethodConfig):
 
     def validate_training(self, model: ModelConfig, distributed: DistributedConfig,
                           tracking: TrackingConfig) -> None:
-        if self.resume_policy == "elastic":
-            backend = self.backend
-            if model.tuning != "lora" or model.lora.backend.modules_to_save is not None:
-                raise ValueError("Elastic resume requires LoRA without modules_to_save")
-            if backend.save_only_model or backend.ignore_data_skip or backend.dataloader_drop_last:
-                raise ValueError("Elastic resume requires full training checkpoints, data skipping and no drop_last")
-            if backend.train_sampling_strategy not in {"random", "sequential"}:
-                raise ValueError("Elastic resume supports random or sequential sampling")
-            if not backend.average_tokens_across_devices or backend.auto_find_batch_size:
-                raise ValueError("Elastic resume requires global token normalization and fixed batch sizes")
-            if backend.optim not in {"adamw_torch", "adamw_torch_fused"}:
-                raise ValueError("Elastic resume currently supports torch AdamW optimizers")
-            if backend.loss_type not in {"nll", "chunked_nll"} or backend.label_smoothing_factor != 0:
-                raise ValueError("Elastic resume requires token-normalized NLL without label smoothing")
-            if backend.use_liger_kernel or backend.activation_offloading:
-                raise ValueError("Elastic resume does not support Liger or activation offloading")
-            if backend.fsdp_config is not None and (backend.fsdp_config.version != 2
-                    or backend.fsdp_config.state_dict_type != "SHARDED_STATE_DICT"):
-                raise ValueError("Elastic resume requires FSDP2 sharded checkpoints")
         if model.init_from is not None and model.tuning != "lora":
             raise ValueError("model.init_from currently requires tuning: lora")
         backend = self.backend
@@ -438,7 +433,7 @@ class SFTMethodConfig(MethodConfig):
             if long_context.activation_dtype != model.dtype:
                 raise ValueError("long_context.activation_dtype must match model.dtype")
             if backend.loss_type != "nll" or backend.use_liger_kernel:
-                raise ValueError("long_context implements chunked NLL in the model; "
+                raise ValueError("long_context computes chunked NLL in the trainer; "
                                  "use backend.loss_type: nll and use_liger_kernel: false")
             if not backend.prediction_loss_only or backend.label_smoothing_factor != 0:
                 raise ValueError("long_context requires prediction_loss_only: true and label_smoothing_factor: 0")
@@ -541,10 +536,9 @@ def parse_config(composed, directory: Path) -> TrainingConfig[SupportedMethodCon
     for section, field in [(config.experiment, "output_dir"), (config.data, "runs_root"),
                            (config.data, "image_root"),
                            (config.model, "path"),
-                           (config.model, "init_from"),
-                           (config.method, "resume_from")]:
+                           (config.model, "init_from")]:
         value = getattr(section, field)
-        if value is not None and value != "auto":
+        if value is not None:
             expanded = value.expanduser()
             setattr(section, field, (expanded if expanded.is_absolute() else directory / expanded).resolve())
     if config.data.files is not None:

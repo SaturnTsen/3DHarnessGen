@@ -63,7 +63,7 @@ def write_mix_fixture(root: Path, task: str) -> None:
 
 @pytest.mark.parametrize("task", ["view", "interaction"])
 @pytest.mark.parametrize("devices", [2, 4])
-def test_mix_task_torchrun_training_eval_save_resume(task, devices, hybrid_model_path, tmp_path):
+def test_mix_task_torchrun_training_eval_and_save(task, devices, hybrid_model_path, tmp_path):
     import torch
     from safetensors.torch import load_file
 
@@ -73,8 +73,8 @@ def test_mix_task_torchrun_training_eval_save_resume(task, devices, hybrid_model
     runs = tmp_path / "runs"
     output = tmp_path / "output"
     write_mix_fixture(runs, task)
-    config = ("configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml" if task == "view" else
-            "configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml")
+    config = ("configs/exp/3DHarnessBench/sft-view_mix-r1-27b.yaml" if task == "view" else
+            "configs/exp/3DHarnessBench/sft-interaciton_cleaned_mix-r2-27b.yaml")
     command = [
         "pixi", "run", "python", "-m", "torch.distributed.run", "--standalone", "--nnodes=1",
         f"--nproc-per-node={devices}", "-m", "harness_training.cli.training", "train", "--config", config,
@@ -90,29 +90,22 @@ def test_mix_task_torchrun_training_eval_save_resume(task, devices, hybrid_model
     # Keep the task's image budgets, NF4, SDPA fused-only policy, adapter sizes,
     # gradient accumulation, and all chunk sizes. Only model/data, step count,
     # output, save/eval frequency, warmup, and online tracking are changed.
-    previous_weights = None
-    for step in (2, 3):
-        args = command + [f"method.max_steps={step}"]
-        if step == 3:
-            args += [f"method.resume_from={output / 'checkpoints/checkpoint-1'}"]
-        (tmp_path / f"command_{step}.json").write_text(json.dumps(args, indent=2))
-        with (tmp_path / f"step_{step}.log").open("w") as stream:
-            result = subprocess.run(args, cwd=root, env=environment, stdout=stream,
-                                    stderr=subprocess.STDOUT, timeout=300)
-        assert result.returncode == 0, (tmp_path / f"step_{step}.log").read_text()[-24000:]
-        metrics = json.loads((output / "metrics.json").read_text())
-        assert math.isfinite(metrics["train_loss"]) and metrics["train_loss"] > 0
-        assert math.isfinite(metrics["eval_loss"]) and metrics["eval_loss"] > 0
-        state = json.loads((output / f"checkpoints/checkpoint-{step}/trainer_state.json").read_text())
-        assert state["global_step"] == step
-        weights = load_file(output / "final/adapter_model.safetensors")
-        assert weights and all(torch.isfinite(value).all() for value in weights.values())
-        assert any(value.count_nonzero() for name, value in weights.items() if "lora_B" in name)
-        if previous_weights is not None:
-            assert any(not torch.equal(weights[name], value) for name, value in previous_weights.items())
-        previous_weights = weights
-        assert (output / "final/processor_config.json").is_file() or (
-            output / "final/preprocessor_config.json").is_file()
+    command += ["method.max_steps=2"]
+    (tmp_path / "command.json").write_text(json.dumps(command, indent=2))
+    with (tmp_path / "training.log").open("w") as stream:
+        result = subprocess.run(command, cwd=root, env=environment, stdout=stream,
+                                stderr=subprocess.STDOUT, timeout=300)
+    assert result.returncode == 0, (tmp_path / "training.log").read_text()[-24000:]
+    metrics = json.loads((output / "metrics.json").read_text())
+    assert math.isfinite(metrics["train_loss"]) and metrics["train_loss"] > 0
+    assert math.isfinite(metrics["eval_loss"]) and metrics["eval_loss"] > 0
+    state = json.loads((output / "checkpoints/checkpoint-2/trainer_state.json").read_text())
+    assert state["global_step"] == 2
+    weights = load_file(output / "final/adapter_model.safetensors")
+    assert weights and all(torch.isfinite(value).all() for value in weights.values())
+    assert any(value.count_nonzero() for name, value in weights.items() if "lora_B" in name)
+    assert (output / "final/processor_config.json").is_file() or (
+        output / "final/preprocessor_config.json").is_file()
     report = json.loads((output / "data_report.json").read_text())
     assert report["objects"] == 10 and report["rejected"] == 0
     assert all(report["samples"][split] > 0 for split in ("train", "validation", "test"))

@@ -8,41 +8,12 @@ import sys
 import pytest
 
 from harness_training.config import MethodConfig, SFTMethodConfig, TrainingConfig, load_config, save_config
-from harness_training.training.methods.base import BaseTrainingMethod
-from harness_training.templates.base import BaseTemplate
-from harness_training.training.smoke import run_smoke
-from harness_training.training.trainer import Trainer
-from test_resume_precheck import saved_resume
+from harness_training.models.qwen import QwenModel
+from harness_training.trainers.sft_trainer import SFTTrainer
 from test_serve_checkpoint import serving_checkpoint
 
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-@pytest.mark.parametrize("explicit", [False, True])
-def test_smoke_is_bounded_uses_configured_sources_and_does_not_mutate_config(config, explicit):
-    if explicit:
-        config.data.files = list(config.data.runs_root.rglob("trajectory.jsonl"))
-    before = config.model_dump(mode="json")
-    result = run_smoke(config, limit=1)
-    assert result["passed"]
-    assert result["checked_records"] == len(result["samples"]) == 1
-    assert not result["processor_checked"] and not result["training_run"] and not result["benchmark_run"]
-    assert config.model_dump(mode="json") == before
-    report = Path(result["report_dir"])
-    assert load_config(report / "resolved_config.yaml") == config
-    assert not (report / "tests.log").exists()
-    assert not config.experiment.output_dir.exists()
-
-
-def test_smoke_reports_bad_first_record_without_scanning_entire_file(config):
-    path = next(config.data.runs_root.rglob("trajectory.jsonl"))
-    path.write_text('{invalid}\n' + path.read_text())
-    result = run_smoke(config, limit=1)
-    assert not result["passed"]
-    assert result["checked_records"] == 1
-    assert result["samples"][0]["line"] == 1
-    assert "error" in result["samples"][0]
 
 
 def test_script_does_not_expand_the_configured_status_filter(config, tmp_path):
@@ -60,59 +31,34 @@ def test_script_does_not_expand_the_configured_status_filter(config, tmp_path):
     assert json.loads(result.stdout)["samples"]["train"] == 0
 
 
-def test_script_resolves_auto_checkpoint_before_checking_resume(saved_resume, tmp_path):
-    config, _ = saved_resume
-    config.method.resume_from = "auto"
-    snapshot = tmp_path / "resume.yaml"
-    save_config(config, snapshot)
-    result = subprocess.run([sys.executable, "-m", "harness_training.cli.training", "check-resume", "--config", str(snapshot)],
+def test_script_rejects_removed_resume_action(tmp_path):
+    result = subprocess.run([sys.executable, "-m", "harness_training.cli.training", "check-resume"],
                             cwd=tmp_path, capture_output=True, text=True, timeout=30)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "Restore " in result.stdout and '"status": "passed"' in result.stdout
-    assert '"weights_loaded": false' in result.stdout
+    assert result.returncode == 2
+    assert "invalid choice" in result.stderr
 
 
-class RecordingMethod(BaseTrainingMethod):
-    def check_resume(self, config, world_size, *, workers=None):
-        raise AssertionError("A new run must not check a checkpoint")
+def test_concrete_trainer_owns_public_workflow(config):
+    from harness_training.trainers.base import BaseTrainer
 
-    def verify_resume(self, config, resume, manifest):
-        raise AssertionError("A new run must not verify a checkpoint")
-
-    def run(self, model, template, data, output_dir, resume_from, *, context):
-        assert model.model is None
-        assert resume_from is None and context.resume is None
-        assert context.manifest["targets"]["train"] == [example.id for example in data.train]
-        assert context.config.experiment.output_dir == output_dir
-        return {"recorded_samples": len(data.train)}
+    trainer = SFTTrainer(config)
+    assert isinstance(trainer, BaseTrainer)
+    assert trainer.audit()["samples"]["train"] == 2
+    assert trainer.backend is None
+    assert isinstance(trainer.model, QwenModel)
+    assert trainer.model.model is None
+    assert trainer.model._processor is None
 
 
-class NoEncodingTemplate(BaseTemplate):
-    def render(self, example):
-        raise AssertionError("The recording method must not render inputs")
-
-    def encode(self, example):
-        raise AssertionError("The recording method must not encode inputs")
-
-
-class PreparedTrainer(Trainer):
-    def prepare(self, *, encode=False, resume_targets=None):
-        return self.dataset.prepare()
-
-    @property
-    def template(self):
-        # The recording method only checks dispatch and never encodes a model input.
-        return NoEncodingTemplate()
-
-
-def test_trainer_passes_run_context_without_injecting_sft_state(config):
+@pytest.mark.parametrize('artifact', ['final', 'checkpoints/checkpoint-1'])
+def test_new_training_rejects_existing_outputs_before_loading_weights(config, artifact):
     config.method.use_cpu = True
-    trainer = PreparedTrainer(config)
-    trainer.method = RecordingMethod()
-    result = trainer.run()
-    assert result == {"recorded_samples": 2}
-    assert not hasattr(trainer.method, "resume_manifest")
-    assert not hasattr(trainer.method, "resume_progress")
+    path = config.experiment.output_dir / artifact
+    path.mkdir(parents=True)
+    trainer = SFTTrainer(config)
+    with pytest.raises(ValueError, match='choose another output_dir'):
+        trainer.run()
+    assert isinstance(trainer.model, QwenModel)
     assert trainer.model.model is None
 
 
@@ -130,7 +76,7 @@ def test_pixi_tasks_run_workflow_modules_directly():
 
     manifest = tomllib.loads((ROOT / "pixi.toml").read_text())
     for task, module in (("training", "training"), ("serve", "serve"),
-                         ("eval", "evaluate"), ("validate-trajectory", "validate_trajectory")):
+                         ("validate-trajectory", "validate_trajectory")):
         assert manifest["tasks"][task] == f"python -m harness_training.cli.{module}"
     assert not {"audit", "prepare", "preview", "train", "check-runtime", "check-resume", "smoke"} & manifest["tasks"].keys()
     assert "post-train" not in manifest["tasks"]
@@ -148,3 +94,15 @@ def test_script_serves_checkpoint(serving_checkpoint, tmp_path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "Client request model:" in result.stdout
     assert "dummy-test-key" not in result.stdout
+
+
+def test_evaluation_requires_samples_before_loading_weights(config, processor):
+    config.method.use_cpu = True
+    config.method.backend.eval_strategy = "steps"
+    config.method.backend.do_eval = True
+    trainer = SFTTrainer(config)
+    with pytest.raises(ValueError, match="nonempty validation split"):
+        trainer.run()
+    assert isinstance(trainer.model, QwenModel)
+    assert trainer.model.model is None
+    assert trainer.backend is None

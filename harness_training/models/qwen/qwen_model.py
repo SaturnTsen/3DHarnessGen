@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from harness_training.types import Processor
 
 if TYPE_CHECKING:
-    from peft import LoraConfig, PeftModel
+    from peft import PeftModel
     from transformers import PreTrainedModel
 
-from harness_training.config import LongContextConfig, ModelConfig, TemplateConfig
-from .base import BaseModel
-from .adapters import build_lora_config
-from harness_training.checkpoints import Checkpoint
+from harness_training.config import LongContextConfig, ModelConfig, TemplateConfig, read_yaml
+from ..base import BaseModel
 
 
 class QwenModel(BaseModel):
@@ -30,13 +29,34 @@ class QwenModel(BaseModel):
 
         if version("transformers") != "5.17.0":
             raise ValueError("Long-context Qwen classes require transformers 5.17.0")
-        if self.long_context.require_optimized_kernels:
-            from .kernels import validate_long_context_kernels
+        if not self.long_context.require_optimized_kernels:
+            return
+        import torch
+        from causal_conv1d import causal_conv1d_fn
+        from fla.ops.gated_delta_rule import chunk_gated_delta_rule
+        from transformers.models.qwen3_5 import modeling_qwen3_5
 
-            validate_long_context_kernels()
-
-    def _lora_config(self) -> LoraConfig:
-        return build_lora_config(self.config.lora)
+        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
+            raise ValueError("Optimized long-context training requires a BF16-capable CUDA GPU")
+        if not torch.backends.cuda.is_flash_attention_available():
+            raise ValueError("This PyTorch build does not include CUDA Flash SDPA support")
+        # Transformers captures the selected implementation when its module imports.
+        # Checking imports alone would miss an earlier, cached fallback selection.
+        for wrapper, expected in [
+            (modeling_qwen3_5.causal_conv1d_fn, causal_conv1d_fn),
+            (modeling_qwen3_5.torch_chunk_gated_delta_rule, chunk_gated_delta_rule),
+        ]:
+            current = wrapper
+            while inspect.isfunction(current):
+                selected = inspect.getclosurevars(current).nonlocals.get("implementation")
+                if selected is not None:
+                    if selected is not expected:
+                        raise ValueError(f"{wrapper.__name__} selected a fallback instead of its native kernel; "
+                                         "restart the process after installing dependencies")
+                    break
+                current = getattr(current, "__wrapped__", None)
+            else:
+                raise ValueError(f"Cannot verify the optimized dispatch for {wrapper.__name__}")
 
     def _validate_initialization(self) -> None:
         source = self.config.init_from
@@ -44,11 +64,12 @@ class QwenModel(BaseModel):
             return
         if not source.is_dir():
             raise ValueError("model.init_from must be an existing checkpoint or adapter directory")
-        if Checkpoint(source).is_fsdp:
-            artifact = Checkpoint(source)
-            if not artifact.snapshot_path.is_file():
+        if (source / "pytorch_model_fsdp_0/.metadata").is_file():
+            run_dir = source.parent.parent if source.parent.name == "checkpoints" else source.parent
+            snapshot = run_dir / "resolved_config.yaml"
+            if not snapshot.is_file():
                 raise ValueError("FSDP model.init_from requires the source run's resolved_config.yaml")
-            prior = artifact.snapshot()["model"]
+            prior = read_yaml(snapshot)["model"]
             current = self.config.model_dump(mode="json")
             if any(prior[key] != current[key] for key in ("name", "path", "tuning", "lora", "adapter")):
                 raise ValueError("model.init_from base model, LoRA and adapter settings must match the source run")
@@ -59,7 +80,7 @@ class QwenModel(BaseModel):
             base_path = prior["base_model_name_or_path"]
             if not base_path or Path(base_path).expanduser().resolve() != self.config.path.resolve():
                 raise ValueError("model.init_from base model must match model.path")
-            current = self._lora_config().to_dict()
+            current = self.config.lora.to_peft().to_dict()
             ignored = {"base_model_name_or_path", "revision", "inference_mode", "peft_version", "auto_mapping"}
             if any(prior[key] != value for key, value in current.items() if key not in ignored):
                 raise ValueError("model.init_from LoRA settings must match the saved adapter")
@@ -76,7 +97,7 @@ class QwenModel(BaseModel):
 
         model = cast(PeftModel, self.model)
         adapter = self.config.adapter
-        if Checkpoint(source).is_fsdp:
+        if (source / "pytorch_model_fsdp_0/.metadata").is_file():
             from torch.distributed.checkpoint.filesystem import FileSystemReader
             from torch.distributed.checkpoint.metadata import TensorStorageMetadata
             from torch.distributed.checkpoint.state_dict_loader import load
@@ -84,12 +105,12 @@ class QwenModel(BaseModel):
             # Read only trainable tensors; frozen 27B/quantized base weights stay on disk.
             state = get_peft_model_state_dict(model, adapter_name=adapter.adapter_name)
             weights = {name: value.detach().cpu().clone() for name, value in state.items()}
-            metadata = FileSystemReader(Checkpoint(source).model_shards).read_metadata()
+            metadata = FileSystemReader(source / "pytorch_model_fsdp_0").read_metadata()
             for name, value in weights.items():
                 saved = metadata.state_dict_metadata.get(f"model.{name}")
                 if not isinstance(saved, TensorStorageMetadata) or saved.size != value.shape:
                     raise ValueError(f"model.init_from missing or incompatible trainable tensor: {name}")
-            load({"model": weights}, checkpoint_id=Checkpoint(source).model_shards, no_dist=True)
+            load({"model": weights}, checkpoint_id=source / "pytorch_model_fsdp_0", no_dist=True)
             set_peft_model_state_dict(model, weights, adapter_name=adapter.adapter_name,
                                       low_cpu_mem_usage=adapter.low_cpu_mem_usage)
         else:
@@ -147,7 +168,7 @@ class QwenModel(BaseModel):
             )
         model_class = AutoModelForImageTextToText
         if self.long_context is not None:
-            from .qwen_long_context import LongContextQwenForConditionalGeneration
+            from .long_context import LongContextQwenForConditionalGeneration
 
             if model_config.model_type != "qwen3_5":
                 raise ValueError("long_context requires the qwen3_5 multimodal architecture")
@@ -177,7 +198,7 @@ class QwenModel(BaseModel):
 
             adapter = self.config.adapter
             self.model = cast(PeftModel, get_peft_model(
-                self.model, self._lora_config(), adapter_name=adapter.adapter_name, mixed=adapter.mixed,
+                self.model, self.config.lora.to_peft(), adapter_name=adapter.adapter_name, mixed=adapter.mixed,
                 autocast_adapter_dtype=adapter.autocast_adapter_dtype, revision=adapter.revision,
                 low_cpu_mem_usage=adapter.low_cpu_mem_usage))
         if self.config.freeze_vision:

@@ -61,8 +61,6 @@ method:
   max_steps: -1
   warmup_ratio: 0.03
   weight_decay: 0.0
-  resume_from: null
-  resume_policy: strict
   logging_steps: 5
   save_steps: 20
   eval_steps: 20

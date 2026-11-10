@@ -21,20 +21,17 @@ modified at runtime. The parent implementation remains the inference path.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from functools import partial
 from typing import Any, cast
 
 import torch
 from torch import nn
-from torch.distributed.tensor import DTensor
 from torch.utils.checkpoint import checkpoint
 from transformers import Qwen3_5Config
 from transformers.models.qwen3_5.configuration_qwen3_5 import Qwen3_5TextConfig
 from transformers.masking_utils import create_causal_mask, create_recurrent_attention_mask
 from transformers.modeling_outputs import BaseModelOutputWithPooling
 from transformers.models.qwen3_5.modeling_qwen3_5 import (
-    Qwen3_5CausalLMOutputWithPast,
     Qwen3_5DecoderLayer,
     Qwen3_5ForConditionalGeneration,
     Qwen3_5MLP,
@@ -49,8 +46,14 @@ from transformers.models.qwen3_5.modeling_qwen3_5 import (
 from transformers.utils.generic import can_return_tuple
 
 from harness_training.config import LongContextConfig
-from .chunked_loss import chunked_cross_entropy
-from .kernels import fused_sdpa
+
+
+def fused_sdpa():
+    """Keep the quadratic-memory math backend disabled without global changes."""
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    return sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION,
+                        SDPBackend.CUDNN_ATTENTION])
 
 
 class ActivationDtypeEmbedding(nn.Embedding):
@@ -232,16 +235,8 @@ class LongContextQwenModel(Qwen3_5Model):
         return BaseModelOutputWithPooling(pooler_output=cast(torch.FloatTensor, tuple(image_embeds)))
 
 
-@dataclass
-class LongContextCausalLMOutput(Qwen3_5CausalLMOutputWithPast):
-    num_correct_tokens: torch.Tensor | None = None
-    entropy_sum: torch.Tensor | None = None
-    num_valid_tokens: torch.Tensor | None = None
-
-
 class LongContextQwenForConditionalGeneration(Qwen3_5ForConditionalGeneration):
     _no_split_modules = ["LongContextQwenDecoderLayer"]
-    accepts_loss_kwargs = True
 
     def __init__(self, config: Qwen3_5Config):
         Qwen3_5PreTrainedModel.__init__(self, config)
@@ -255,32 +250,20 @@ class LongContextQwenForConditionalGeneration(Qwen3_5ForConditionalGeneration):
     def forward(self, input_ids=None, attention_mask=None, position_ids=None, past_key_values=None,
                 inputs_embeds=None, labels=None, pixel_values=None, pixel_values_videos=None,
                 image_grid_thw=None, video_grid_thw=None, mm_token_type_ids=None,
-                logits_to_keep: int | torch.Tensor = 0, num_items_in_batch=None, **kwargs: Any):
-        if labels is None:
+                logits_to_keep: int | torch.Tensor = 0, return_hidden_states_only: bool = False,
+                **kwargs: Any):
+        if not return_hidden_states_only:
             return super().forward(
                 input_ids=cast(torch.LongTensor, input_ids), attention_mask=attention_mask, position_ids=position_ids,
-                past_key_values=past_key_values, inputs_embeds=inputs_embeds, pixel_values=pixel_values,
+                past_key_values=past_key_values, inputs_embeds=inputs_embeds, labels=labels, pixel_values=pixel_values,
                 pixel_values_videos=pixel_values_videos, image_grid_thw=image_grid_thw,
                 video_grid_thw=video_grid_thw, mm_token_type_ids=mm_token_type_ids,
                 logits_to_keep=logits_to_keep, **kwargs,
             )
-        if not isinstance(logits_to_keep, int) or logits_to_keep != 0:
-            raise ValueError("Target-only chunked training requires logits_to_keep: 0")
-        kwargs.pop("use_cache", None)
-        outputs = self.model(
+        # The trainer projects only supervised positions through get_output_embeddings().
+        return self.model(
             input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids,
             past_key_values=past_key_values, inputs_embeds=inputs_embeds, pixel_values=pixel_values,
             pixel_values_videos=pixel_values_videos, image_grid_thw=image_grid_thw,
-            video_grid_thw=video_grid_thw, mm_token_type_ids=mm_token_type_ids, use_cache=False, **kwargs,
-        )
-        weight = self.lm_head.weight
-        if isinstance(weight, DTensor):
-            weight = weight.full_tensor()
-        loss, correct, entropy, count = chunked_cross_entropy(
-            outputs.last_hidden_state, weight, labels, self.options.loss_chunk_size, num_items_in_batch,
-        )
-        return LongContextCausalLMOutput(
-            loss=cast(torch.FloatTensor, loss), logits=None, past_key_values=outputs.past_key_values,
-            rope_deltas=outputs.rope_deltas, num_correct_tokens=correct,
-            entropy_sum=entropy, num_valid_tokens=count,
+            video_grid_thw=video_grid_thw, mm_token_type_ids=mm_token_type_ids, **kwargs,
         )

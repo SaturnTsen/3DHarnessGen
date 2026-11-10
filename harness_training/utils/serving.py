@@ -20,8 +20,7 @@ import re
 import shutil
 from tempfile import TemporaryDirectory
 
-from harness_training.inference import checkpoint_model_name
-from harness_training.checkpoints import Checkpoint
+from harness_training.config import LoRAConfig, read_yaml
 
 
 def option_value(arguments: list[str], flag: str) -> str | None:
@@ -72,7 +71,7 @@ def extract_fsdp_adapter(checkpoint: Path, config: dict, cache_root: Path) -> Pa
     from torch.distributed.checkpoint.metadata import TensorStorageMetadata
     from torch.distributed.checkpoint.state_dict_loader import load
 
-    source = Checkpoint(checkpoint).model_shards
+    source = checkpoint / "pytorch_model_fsdp_0"
     fingerprint = hashlib.sha256(str(checkpoint).encode() + json.dumps(
         config, sort_keys=True, default=lambda value: sorted(value),
     ).encode())
@@ -170,16 +169,25 @@ def build_command(args: argparse.Namespace, passthrough: list[str]) -> tuple[lis
     checkpoint = args.checkpoint_path.expanduser().resolve()
     if not checkpoint.is_dir():
         raise ValueError(f"Checkpoint directory does not exist: {checkpoint}")
-    artifact = Checkpoint(checkpoint)
-    snapshot = artifact.snapshot()
-    config = artifact.adapter_config()
+    run_dir = checkpoint.parent.parent if checkpoint.parent.name == "checkpoints" else checkpoint.parent
+    snapshot_path = run_dir / "resolved_config.yaml"
+    snapshot = read_yaml(snapshot_path) if snapshot_path.is_file() else {}
+    adapter_config_path = checkpoint / "adapter_config.json"
+    if adapter_config_path.is_file():
+        config = json.loads(adapter_config_path.read_text())
+    else:
+        model = snapshot["model"]
+        if model["tuning"] != "lora":
+            raise ValueError("Checkpoint does not contain a LoRA adapter")
+        config = LoRAConfig.model_validate(model["lora"]).to_peft().to_dict()
+        config["base_model_name_or_path"] = model["path"]
     recorded_base = config.get("base_model_name_or_path") or snapshot.get("model", {}).get("path")
     if args.base_model_path is None and not recorded_base:
         raise ValueError("Cannot determine base model; provide --base-model-path")
     base = (args.base_model_path or Path(recorded_base)).expanduser().resolve()
     if not (base / "config.json").is_file():
         raise ValueError(f"Base config.json is unavailable at {base}; provide --base-model-path with model files")
-    if artifact.is_fsdp:
+    if (checkpoint / "pytorch_model_fsdp_0/.metadata").is_file():
         cache_root = Path(__file__).resolve().parents[1] / "temp/vllm_adapters"
         adapter = extract_fsdp_adapter(checkpoint, config, cache_root)
     else:
@@ -192,7 +200,9 @@ def build_command(args: argparse.Namespace, passthrough: list[str]) -> tuple[lis
     supplied_rank = option_value(passthrough, "--max-lora-rank")
     if supplied_rank is not None and int(supplied_rank) < rank:
         raise ValueError(f"--max-lora-rank must be at least {rank}")
-    name = checkpoint_model_name(checkpoint, args.adapter_name)
+    name = args.adapter_name or f"{run_dir.name}-{checkpoint.name}"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
+        raise ValueError("Model name must contain only letters, digits, dots, underscores and hyphens")
     command = ["vllm", "serve", str(base), "--enable-lora", "--lora-modules",
                json.dumps({"name": name, "path": str(adapter), "base_model_name": str(base)})]
     if supplied_rank is None:

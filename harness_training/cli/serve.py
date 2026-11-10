@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 
-from harness_training.serving import build_command
+from harness_training.utils.serving import build_command
 
 
 def main() -> None:

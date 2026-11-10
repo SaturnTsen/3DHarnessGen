@@ -106,13 +106,10 @@ class PreviewItem(TypedDict):
     error: NotRequired[str]
 
 
-class ManifestPayload(TypedDict):
+class Manifest(TypedDict):
     config: JsonObject
     sources: dict[str, str]
     versions: dict[str, str]
     code: dict[str, str]
     targets: dict[str, list[str]]
-
-
-class Manifest(ManifestPayload):
     fingerprint: str

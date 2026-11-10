@@ -1,15 +1,12 @@
 from harness_training.data.trajectory import TrajectoryDataset
 from harness_training.models.qwen import QwenModel
-from harness_training.templates.qwen import QwenTemplate
-from harness_training.training.collator import SFTCollator
-from harness_training.training.methods.sft import SFTMethod
+from harness_training.chat_templates.qwen import QwenTemplate
+from harness_training.trainers.sft_trainer import DataLoaderSFTTrainer, SFTTrainer
 
 
 def test_native_chunked_loss_preserves_multimodal_lora_gradients(config, tiny_qwen_path):
     """Check equal objectives and gradients using TRL's public loss_type option."""
     import torch
-    from datasets import Dataset
-    from trl import SFTTrainer
 
     config.model.path = tiny_qwen_path
     config.model.lora.rank = 2
@@ -30,18 +27,14 @@ def test_native_chunked_loss_preserves_multimodal_lora_gradients(config, tiny_qw
             config.method.backend.loss_type = loss_type
             model = QwenModel(config.model, config.template)
             template = QwenTemplate(config.template, model.processor)
-            collator = SFTCollator(
-                template, model.processor.tokenizer.pad_token_id, data.train,
-                label_ignore_index=-100, attention_padding_value=0, token_type_padding_value=0,
-            )
-            backend = SFTTrainer(
+            backend = DataLoaderSFTTrainer(
                 model=model.load(), processing_class=model.processor,
-                args=SFTMethod(config.method, config.experiment.seed).build_arguments(
-                    config.experiment.output_dir / loss_type, None),
-                train_dataset=Dataset.from_dict({"example_index": [0]}),
-                data_collator=collator, **config.method.trainer.model_dump(),
+                args=SFTTrainer(config).build_arguments(
+                    config.experiment.output_dir / loss_type),
+                data=data, template=template, pad_token_id=model.processor.tokenizer.pad_token_id,
+                **config.method.trainer.model_dump(),
             )
-            inputs = collator([{"example_index": 0}])
+            inputs = next(iter(backend.get_train_dataloader()))
             output = backend.model(**inputs)
             output.loss.backward()
             gradients = {name: parameter.grad.detach().clone()

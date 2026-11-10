@@ -28,9 +28,6 @@ dev = ["pytest>=8,<10"]
 where = ["."]
 include = ["harness_training*"]
 
-[tool.setuptools.package-data]
-harness_training = ["training/legacy_code.json"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests/harness_training"]
 pythonpath = ["."]

@@ -8,8 +8,8 @@ from torch.nn import functional as F
 from transformers import Qwen3_5Config, Qwen3_5ForConditionalGeneration
 
 from harness_training.config import LongContextConfig, TrainingConfig, load_config
-from harness_training.models.chunked_loss import chunked_cross_entropy
-from harness_training.models.qwen_long_context import LongContextQwenForConditionalGeneration
+from harness_training.trainers.long_context_sft_trainer import chunked_cross_entropy
+from harness_training.models.qwen.qwen_long_context import LongContextQwenForConditionalGeneration
 
 
 def options():
@@ -74,30 +74,31 @@ def test_fully_masked_loss_is_finite_differentiable_zero():
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
-def test_nested_checkpoints_preserve_loss_and_lora_gradients(device):
+def test_nested_checkpoints_preserve_loss_and_lora_gradients(device, config, processor):
     from peft import LoraConfig, get_peft_model
 
     if device == "cuda":
         if not torch.cuda.is_available():
             pytest.skip("CUDA hybrid-attention comparison requires a GPU")
-        from harness_training.models.kernels import validate_long_context_kernels
+        from harness_training.models.qwen import QwenModel
 
-        validate_long_context_kernels()
+        QwenModel(config.model, config.template,
+                  options().model_copy(update={"require_optimized_kernels": True})).validate_runtime()
     torch.manual_seed(23)
-    config = tiny_config()
+    architecture = tiny_config()
     dtype = torch.float32
     if device == "cuda":
         dtype = torch.bfloat16
-        config.text_config.layer_types = ["linear_attention"] * 3 + ["full_attention"]
-        config.text_config.linear_num_key_heads = 1
-        config.text_config.linear_num_value_heads = 2
-        config.text_config.linear_key_head_dim = 16
-        config.text_config.linear_value_head_dim = 16
-        config.harness_long_context["activation_dtype"] = "bfloat16"
-        config.harness_long_context["require_optimized_kernels"] = True
-        config._attn_implementation = "sdpa"
-    reference = Qwen3_5ForConditionalGeneration(deepcopy(config))
-    optimized = LongContextQwenForConditionalGeneration(deepcopy(config))
+        architecture.text_config.layer_types = ["linear_attention"] * 3 + ["full_attention"]
+        architecture.text_config.linear_num_key_heads = 1
+        architecture.text_config.linear_num_value_heads = 2
+        architecture.text_config.linear_key_head_dim = 16
+        architecture.text_config.linear_value_head_dim = 16
+        architecture.harness_long_context["activation_dtype"] = "bfloat16"
+        architecture.harness_long_context["require_optimized_kernels"] = True
+        architecture._attn_implementation = "sdpa"
+    reference = Qwen3_5ForConditionalGeneration(deepcopy(architecture))
+    optimized = LongContextQwenForConditionalGeneration(deepcopy(architecture))
     assert reference.state_dict().keys() == optimized.state_dict().keys()
     optimized.load_state_dict(reference.state_dict())
     reference.to(device=device, dtype=dtype)
@@ -115,22 +116,65 @@ def test_nested_checkpoints_preserve_loss_and_lora_gradients(device):
     optimized.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     ids = torch.randint(1, 90, (1, 13), device=device)
     labels = ids.clone()
-    labels[:, :7] = -100
+    labels[:, 1:7] = -100
+    from harness_training.data.trajectory import TrajectoryDataset
+    from harness_training.chat_templates.qwen import QwenTemplate
+    from harness_training.trainers.long_context_sft_trainer import LongContextSFTTrainer
+    from harness_training.trainers.sft_trainer import SFTTrainer
+
+    config.method.use_cpu = device == "cpu"
+    config.method.backend.bf16 = device == "cuda"
+    config.method.backend.eval_strategy = "no"
+    config.method.backend.do_eval = False
+    config.method.backend.loss_type = "nll"
+    config.method.backend.prediction_loss_only = True
+    data = TrajectoryDataset(config.data, config.experiment.scene, config.experiment.seed).prepare()
+    backend = LongContextSFTTrainer(
+        model=optimized, processing_class=processor,
+        args=SFTTrainer(config).build_arguments(config.experiment.output_dir),
+        data=data, template=QwenTemplate(config.template, processor),
+        pad_token_id=processor.tokenizer.pad_token_id,
+        loss_chunk_size=architecture.harness_long_context["loss_chunk_size"],
+        **config.method.trainer.model_dump(),
+    )
     results = []
     for model in (reference, optimized):
         model.train()
-        output = model(input_ids=ids, attention_mask=torch.ones_like(ids), labels=labels, use_cache=False)
-        output.loss.backward()
+        inputs = dict(input_ids=ids, attention_mask=torch.ones_like(ids), labels=labels)
+        if model is reference:
+            output = model(**inputs, use_cache=False)
+            loss = output.loss
+        else:
+            loss, output = backend.compute_loss(model, inputs, return_outputs=True, num_items_in_batch=6)
+        loss.backward()
         gradients = {n: p.grad.clone() for n, p in model.named_parameters() if p.requires_grad}
-        results.append((output, gradients))
+        results.append((loss.detach(), gradients, output))
     rtol, atol = (5e-2, 3e-3) if device == "cuda" else (2e-4, 2e-6)
-    torch.testing.assert_close(results[0][0].loss, results[1][0].loss, rtol=rtol, atol=atol)
-    assert results[1][0].logits is None
-    assert results[1][0].num_valid_tokens == 6
+    torch.testing.assert_close(results[0][0], results[1][0], rtol=rtol, atol=atol)
+    assert set(results[1][2]) == {"loss"}
+    logits = results[0][2].logits[:, :-1].float()
+    targets = labels[:, 1:]
+    valid = targets != -100
+    expected_accuracy = (logits.argmax(-1)[valid] == targets[valid]).float().mean()
+    log_probs = logits.log_softmax(-1)
+    expected_entropy = -(log_probs.exp() * log_probs).sum(-1)[valid].mean()
+    assert backend._metrics["train"]["mean_token_accuracy"][-1] == pytest.approx(expected_accuracy.item(), abs=1e-3)
+    assert backend._metrics["train"]["entropy"][-1] == pytest.approx(expected_entropy.item(), rel=rtol, abs=atol)
     assert results[0][1].keys() == results[1][1].keys()
     for name, gradient in results[0][1].items():
         torch.testing.assert_close(gradient, results[1][1][name], rtol=rtol, atol=atol)
     assert "forward" not in optimized.get_base_model().__dict__
+
+
+def test_model_exposes_last_hidden_state_and_output_layer():
+    model = LongContextQwenForConditionalGeneration(tiny_config()).eval()
+    ids = torch.randint(1, 90, (1, 7))
+    with torch.no_grad():
+        hidden = model(input_ids=ids, return_hidden_states_only=True, use_cache=False)
+        logits = model(input_ids=ids, use_cache=False).logits
+    assert hidden.last_hidden_state.shape == (1, 7, 32)
+    assert "loss" not in hidden and "logits" not in hidden
+    torch.testing.assert_close(F.linear(hidden.last_hidden_state, model.get_output_embeddings().weight), logits)
 
 
 def test_image_microbatches_preserve_variable_grids_order_and_duplicates():
@@ -160,11 +204,11 @@ def test_image_microbatches_preserve_variable_grids_order_and_duplicates():
 ])
 def test_48k_rejects_unsafe_or_incompatible_settings(override):
     with pytest.raises(ValueError):
-        load_config("configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml", [override])
+        load_config("configs/exp/3DHarnessBench/sft-interaciton_cleaned_mix-r2-27b.yaml", [override])
 
 
 def test_long_context_options_are_explicit():
-    cfg = load_config("configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml")
+    cfg = load_config("configs/exp/3DHarnessBench/sft-interaciton_cleaned_mix-r2-27b.yaml")
     assert cfg.template.max_length == 147456
     assert cfg.model.attention_implementation == "sdpa"
     for field in LongContextConfig.model_fields:
@@ -175,7 +219,7 @@ def test_long_context_options_are_explicit():
 
 
 def test_fused_sdpa_scope_disables_math_and_restores_backend_flags():
-    from harness_training.models.kernels import fused_sdpa
+    from harness_training.models.qwen.qwen_long_context import fused_sdpa
 
     previous = (torch.backends.cuda.math_sdp_enabled(), torch.backends.cuda.flash_sdp_enabled(),
                 torch.backends.cuda.mem_efficient_sdp_enabled(), torch.backends.cuda.cudnn_sdp_enabled())
@@ -189,8 +233,9 @@ def test_fused_sdpa_scope_disables_math_and_restores_backend_flags():
     assert actual == previous
 
 
-def test_long_context_sft_save_resume(config, tiny_qwen_path):
-    from harness_training.training.trainer import Trainer
+def test_long_context_sft_and_save(config, tiny_qwen_path):
+    from harness_training.trainers.sft_trainer import SFTTrainer
+    from conftest import write_trajectory
 
     config.model.path = tiny_qwen_path
     config.method.long_context = options()
@@ -198,17 +243,20 @@ def test_long_context_sft_save_resume(config, tiny_qwen_path):
     config.method.max_steps = 1
     config.method.gradient_accumulation_steps = 1
     config.method.save_steps = 1
-    config.method.backend.eval_strategy = "no"
-    config.method.backend.do_eval = False
+    config.data.validation_fraction = .5
+    write_trajectory(config.data.runs_root, instance="OtherFactory")
+    config.method.backend.eval_strategy = "steps"
+    config.method.backend.do_eval = True
+    config.method.eval_steps = 1
     config.method.backend.loss_type = "nll"
     config.method.backend.prediction_loss_only = True
     config.method.gradient_checkpointing = True
-    trainer = Trainer(config)
+    trainer = SFTTrainer(config)
     metrics = trainer.run()
     assert metrics["train_loss"] > 0
+    assert metrics["eval_loss"] > 0
+    assert metrics["eval_entropy"] > 0
+    assert 0 <= metrics["eval_mean_token_accuracy"] <= 1
     assert "forward" not in trainer.model.model.get_base_model().__dict__
     assert (config.experiment.output_dir / "final/adapter_model.safetensors").is_file()
-    config.method.max_steps = 2
-    config.method.resume_from = config.experiment.output_dir / "checkpoints/checkpoint-1"
-    Trainer(config).run()
-    assert (config.experiment.output_dir / "checkpoints/checkpoint-2/trainer_state.json").is_file()
+    assert (config.experiment.output_dir / "checkpoints/checkpoint-1/trainer_state.json").is_file()

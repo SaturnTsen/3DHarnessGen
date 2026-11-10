@@ -1,5 +1,8 @@
 # Qwen Agent 后训练最小改动计划
 
+> 历史记录：文中的旧训练器、方法层与 checkpoint 模块已在后续重组中删除，当前结构见 [实验主流程阅读顺序](EXPERIMENT_FLOW_GUIDE.md)。
+
+
 进度更新：v3 训练读取、工具输入适配和 SFT 已接入；实现说明见 [当前设计](POST_TRAINING_DESIGN.md)。服务推理与工具输出解析尚未接入。
 
 下文保留早期方案供参考，其中 `tool_context_index`、来源扩展字段和模块拆分已被当前契约及实现替代，不作为当前配置或交付要求。最新数据接口见 [交付规范](POST_TRAIN_TRAJECTORY_CONTRACT.md)。

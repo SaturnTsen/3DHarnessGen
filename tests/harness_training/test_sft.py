@@ -2,15 +2,15 @@ import json
 
 import pytest
 
-from harness_training.training.trainer import Trainer
-from harness_training.training.methods.sft import SFTMethod
+from harness_training.trainers.sft_trainer import SFTTrainer
 from conftest import write_trajectory
 
 
 def test_backend_arguments_use_explicit_config(config):
     from dataclasses import fields
     from inspect import signature
-    from trl import SFTConfig, SFTTrainer
+    from trl.trainer.sft_config import SFTConfig
+    from trl.trainer.sft_trainer import SFTTrainer as TRLSFTTrainer
 
     config.method.use_cpu = True
     backend = config.method.backend
@@ -24,8 +24,8 @@ def test_backend_arguments_use_explicit_config(config):
     backend.eval_strategy = "no"
     backend.do_eval = False
     backend.loss_type = "dft"
-    method = SFTMethod(config.method, config.experiment.seed)
-    args = method.build_arguments(config.experiment.output_dir, config.method.resume_from)
+    trainer = SFTTrainer(config)
+    args = trainer.build_arguments(config.experiment.output_dir)
     assert args.adam_beta1 == .8
     assert args.max_grad_norm == .7
     assert args.lr_scheduler_type == "cosine"
@@ -39,20 +39,20 @@ def test_backend_arguments_use_explicit_config(config):
         "output_dir", "learning_rate", "num_train_epochs", "max_steps", "per_device_train_batch_size",
         "gradient_accumulation_steps", "gradient_checkpointing", "warmup_steps", "weight_decay",
         "logging_steps", "save_steps", "save_total_limit", "eval_steps", "use_cpu", "dataloader_num_workers",
-        "seed", "resume_from_checkpoint",
+        "seed",
     }
     assert configured == {field.name for field in fields(SFTConfig) if field.init}
     trainer_fields = set(type(config.method.trainer).model_fields) | {
         "model", "args", "data_collator", "train_dataset", "eval_dataset", "processing_class",
     }
-    assert trainer_fields == set(signature(SFTTrainer).parameters)
+    assert trainer_fields == set(signature(TRLSFTTrainer).parameters)
 
 
 @pytest.mark.parametrize("scene,loss_type", [
     ("Single-view", "nll"), ("ActiveVisual", "nll"), ("Single-view", "chunked_nll"),
 ])
-def test_small_qwen_sft_save_and_resume(config, processor, tmp_path, scene, loss_type):
-    """Exercise real model loading, LoRA gradients, backend training and checkpoint restore."""
+def test_small_qwen_sft_and_save(config, processor, tmp_path, scene, loss_type):
+    """Exercise real model loading, LoRA gradients, backend training and checkpoint saving."""
     import torch
     from transformers import AutoConfig, AutoProcessor, Qwen3_5Config, Qwen3_5ForConditionalGeneration
 
@@ -96,9 +96,11 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path, scene, loss
             config.data.runs_root = tmp_path / "agent_runs"
             for index in range(10):
                 interactive_record(config.data.runs_root, instance=f"Object{index}Factory")
-        trainer = Trainer(config)
+        trainer = SFTTrainer(config)
         model = trainer.model
         metrics = trainer.run()
+        assert trainer.backend is not None
+        assert trainer.backend.state.global_step == 1
         assert metrics["train_loss"] > 0
         assert metrics["eval_loss"] > 0
         assert any(torch.count_nonzero(p).item() > 0 for n, p in model.model.named_parameters() if "lora_B" in n)
@@ -108,17 +110,7 @@ def test_small_qwen_sft_save_and_resume(config, processor, tmp_path, scene, loss
         assert restored_processor.chat_template == model.processor.chat_template
         checkpoint = config.experiment.output_dir / "checkpoints/checkpoint-1"
         assert (checkpoint / "trainer_state.json").is_file()
-        config.method.max_steps = 2
-        config.method.resume_from = checkpoint
-        Trainer(config).run()
-        state = json.loads((config.experiment.output_dir / "checkpoints/checkpoint-2/trainer_state.json").read_text())
-        assert state["global_step"] == 2
-        # Same checkpoint must not silently resume on changed training data.
-        source = next(config.data.runs_root.glob("*/gpt-6-astra/*/post_train_trajectory/trajectory.jsonl"))
-        row = json.loads(source.read_text())
-        row["messages"][0]["content"] += "\n# changed"
-        source.write_text(json.dumps(row))
-        with pytest.raises(ValueError, match="changed"):
-            Trainer(config).run()
+        state = json.loads((checkpoint / "trainer_state.json").read_text())
+        assert state["global_step"] == 1
     finally:
         torch.set_num_threads(threads)

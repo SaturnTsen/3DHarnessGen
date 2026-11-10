@@ -9,8 +9,7 @@ import sys
 
 import pytest
 
-from harness_training.checkpoints import Checkpoint
-from harness_training.serving import (
+from harness_training.utils.serving import (
     build_command, extract_fsdp_adapter, option_value, validate_adapter,
 )
 
@@ -54,7 +53,8 @@ def digest_files(directory):
             for path in directory.rglob('*') if path.is_file()}
 
 
-def test_standard_adapter_base_override_and_passthrough(serving_checkpoint):
+@pytest.mark.parametrize('model_name', [None, 'custom-model'])
+def test_standard_adapter_base_override_and_passthrough(serving_checkpoint, model_name):
     base, checkpoint = serving_checkpoint
     config_path = checkpoint / 'adapter_config.json'
     config = json.loads(config_path.read_text())
@@ -63,10 +63,12 @@ def test_standard_adapter_base_override_and_passthrough(serving_checkpoint):
     original = digest_files(checkpoint)
     options = ['--port', '18096', '--max-model-len=73728', '--tensor-parallel-size', '1',
                '--data-parallel-size', '3', '--default-chat-template-kwargs', '{"enable_thinking":false}']
-    command, name = build_command(arguments(checkpoint, base), options)
+    args = arguments(checkpoint, base)
+    args.adapter_name = model_name
+    command, name = build_command(args, options)
     assert command[:3] == ['vllm', 'serve', str(base)]
     assert command[-len(options):] == options
-    assert name == 'training-checkpoint-7'
+    assert name == (model_name or 'training-checkpoint-7')
     modules = option_value(command, '--lora-modules')
     assert modules is not None
     assert json.loads(modules) == {
@@ -142,7 +144,7 @@ def test_fsdp_config_can_come_from_training_snapshot(serving_checkpoint):
     from harness_training.config import load_config
 
     base, checkpoint = serving_checkpoint
-    config = load_config(Path(__file__).resolve().parents[2] / 'configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml')
+    config = load_config(Path(__file__).resolve().parents[2] / 'configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml')
     config.model.path = base
     snapshot = config.model_dump(mode='json')
     (checkpoint.parent.parent / 'resolved_config.yaml').write_text(json.dumps(snapshot))
@@ -150,14 +152,15 @@ def test_fsdp_config_can_come_from_training_snapshot(serving_checkpoint):
     save({'model': expected}, checkpoint_id=checkpoint / 'pytorch_model_fsdp_0', no_dist=True)
     (checkpoint / 'adapter_config.json').unlink()
     (checkpoint / 'adapter_model.safetensors').unlink()
-    reconstructed = Checkpoint(checkpoint).adapter_config()
-    assert reconstructed['r'] == config.model.lora.rank
-    assert reconstructed['lora_alpha'] == config.model.lora.alpha
-    assert reconstructed['base_model_name_or_path'] == str(config.model.path)
     command, _ = build_command(arguments(checkpoint, base), [])
     modules = option_value(command, '--lora-modules')
     assert modules is not None
-    exported = load_file(Path(json.loads(modules)['path']) / 'adapter_model.safetensors')
+    adapter = Path(json.loads(modules)['path'])
+    reconstructed = json.loads((adapter / 'adapter_config.json').read_text())
+    assert reconstructed['r'] == config.model.lora.rank
+    assert reconstructed['lora_alpha'] == config.model.lora.alpha
+    assert reconstructed['base_model_name_or_path'] == str(config.model.path)
+    exported = load_file(adapter / 'adapter_model.safetensors')
     assert all(torch.equal(exported[name], value) for name, value in expected.items())
 
 

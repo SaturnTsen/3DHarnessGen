@@ -7,8 +7,7 @@ from pydantic import ValidationError
 from harness_training.config import DataConfig, TrainingConfig, load_config, save_config
 from harness_training.data.trajectory import DataError, TrajectoryDataset
 from harness_training.models.qwen import QwenModel
-from harness_training.training.methods.sft import SFTMethod
-from harness_training.training.trainer import Trainer
+from harness_training.trainers.sft_trainer import SFTTrainer
 from conftest import write_trajectory
 
 
@@ -49,15 +48,14 @@ def test_config_requires_explicit_fields(config, section):
 
 def test_trainer_audit_uses_config_without_loading_processor(config, tmp_path):
     config.model.path = tmp_path / "unavailable_model"
-    trainer = Trainer(config)
+    trainer = SFTTrainer(config)
     assert isinstance(trainer.model, QwenModel)
-    assert isinstance(trainer.method, SFTMethod)
+    assert trainer.backend is None
     report = trainer.audit()
     assert report["samples"]["train"] == 2
     assert trainer.dataset.config is config.data
     assert trainer.model.config is config.model
-    assert trainer.method.config is config.method
-    assert trainer.dataset.seed == trainer.method.seed == config.experiment.seed
+    assert trainer.dataset.seed == config.experiment.seed
     assert trainer._template is None
     assert trainer.model._processor is None
     assert trainer.model.model is None
@@ -69,7 +67,7 @@ def test_trainer_rejects_unimplemented_component_names(config, section, message)
     payload[section]["name"] = "unimplemented"
     with pytest.raises(ValueError, match=f"{message}: unimplemented"):
         selected = TrainingConfig.model_validate(payload)
-        Trainer(selected)
+        SFTTrainer(selected)
 
 
 @pytest.mark.parametrize("section", ["model", "method"])
@@ -83,6 +81,7 @@ def test_component_names_cannot_be_empty(config, section):
 @pytest.mark.parametrize("field, value", [
     ("remove_unused_columns", True), ("packing", True), ("padding_free", True),
     ("assistant_only_loss", True), ("completion_only_loss", True), ("max_length", 1024),
+    ("resume_from_checkpoint", "checkpoint-1"),
 ])
 def test_backend_rejects_settings_incompatible_with_indexed_samples(config, field, value):
     payload = config.model_dump(mode="json")
@@ -91,11 +90,12 @@ def test_backend_rejects_settings_incompatible_with_indexed_samples(config, fiel
         TrainingConfig.model_validate(payload)
 
 
-def test_resume_path_resolves_from_yaml(config, tmp_path):
-    config.method.resume_from = Path("checkpoints/checkpoint-1")
-    path = tmp_path / "config.yaml"
-    save_config(config, path)
-    assert load_config(path).method.resume_from == tmp_path / "checkpoints/checkpoint-1"
+@pytest.mark.parametrize('field,value', [('resume_from', 'auto'), ('resume_policy', 'elastic')])
+def test_removed_resume_options_are_rejected(config, field, value):
+    payload = config.model_dump(mode='json')
+    payload['method'][field] = value
+    with pytest.raises(ValidationError, match='Extra inputs are not permitted'):
+        TrainingConfig.model_validate(payload)
 
 
 def test_initialization_path_resolves_from_yaml(config, tmp_path):
@@ -115,7 +115,7 @@ def test_initialization_requires_lora(config):
 def test_initialization_rejects_missing_source_before_processor(config, tmp_path):
     config.model.init_from = tmp_path / "missing"
     config.method.use_cpu = True
-    trainer = Trainer(config)
+    trainer = SFTTrainer(config)
     with pytest.raises(ValueError, match="existing checkpoint"):
         trainer.run()
     assert isinstance(trainer.model, QwenModel)
@@ -170,8 +170,8 @@ def test_mix_files_split_by_metadata_object_and_resolve_images(config, tmp_path)
 
 def test_blender_config_sources_paths_and_training_settings(tmp_path):
     root = Path(__file__).resolve().parents[2]
-    config = load_config(root / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml")
-    baseline = load_config(root / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml")
+    config = load_config(root / "configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml")
+    baseline = load_config(root / "configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml")
     assert config.data.image_root == root
     assert len(config.data.files) == 2
     assert all(path.is_absolute() for path in config.data.files)
@@ -182,7 +182,6 @@ def test_blender_config_sources_paths_and_training_settings(tmp_path):
         "epochs": 2.0,
         "save_steps": 20,
         "backend": baseline.method.backend.model_copy(update={"run_name": config.experiment.name})})
-    assert config.method.resume_from is None
     saved = tmp_path / "blender.yaml"
     save_config(config, saved)
     assert load_config(saved) == config
@@ -308,9 +307,9 @@ def test_mix_rejects_scene_metadata_in_wrong_directory(tmp_path, config):
 ])
 def test_mix_configs_and_roundtrip(tmp_path, name, scenes):
     root = Path(__file__).resolve().parents[2]
-    config = load_config(root / ("configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml" if name == "view" else
-                                  "configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml"))
-    baseline = load_config(root / "configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml", [
+    config = load_config(root / ("configs/exp/3DHarnessBench/sft-view_mix-r1-27b.yaml" if name == "view" else
+                                  "configs/exp/3DHarnessBench/sft-interaciton_cleaned_mix-r2-27b.yaml"))
+    baseline = load_config(root / "configs/exp/3DHarnessBench/sft-view_mix-r1-27b.yaml", [
         "experiment.output_dir=../outputs/post_training/Single-view/test",
     ])
     assert config.experiment.scene == scenes
@@ -318,7 +317,6 @@ def test_mix_configs_and_roundtrip(tmp_path, name, scenes):
     assert config.model == baseline.model
     assert config.distributed == baseline.distributed
     assert config.method.epochs > 0
-    assert config.method.resume_from is None
     snapshot = tmp_path / "mixed.yaml"
     save_config(config, snapshot)
     assert load_config(snapshot) == config

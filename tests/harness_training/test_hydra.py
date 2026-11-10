@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from harness_training.config import load_config, save_config
 from harness_training.models.qwen import QwenModel
-from harness_training.training.trainer import Trainer
+from harness_training.trainers.sft_trainer import SFTTrainer
 from conftest import write_trajectory
 
 
@@ -55,7 +55,7 @@ def test_experiment_config_uses_only_common_defaults(tmp_path, filename):
 
 
 def test_blender_config_keeps_single_gpu_and_wandb_overrides():
-    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [
+    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml", [
         "distributed=single", "tracking.entity=test-workspace", "tracking.project=test-project",
     ])
     assert config.method.epochs == 2
@@ -68,8 +68,8 @@ def test_blender_config_keeps_single_gpu_and_wandb_overrides():
 
 @pytest.mark.parametrize("task", ["view", "interaction"])
 def test_disabled_tracking_preserves_mixed_task_settings(task):
-    path = ROOT / ("configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml" if task == "view" else
-            "configs/exp/3DHarnessBench/sft_interaciton_cleaned_mix_r2_27b.yaml")
+    path = ROOT / ("configs/exp/3DHarnessBench/sft-view_mix-r1-27b.yaml" if task == "view" else
+            "configs/exp/3DHarnessBench/sft-interaciton_cleaned_mix-r2-27b.yaml")
     baseline = load_config(path)
     config = load_config(path, ["tracking=disabled"])
     assert config.tracking == baseline.tracking.model_copy(update={"mode": "disabled"})
@@ -79,7 +79,7 @@ def test_disabled_tracking_preserves_mixed_task_settings(task):
 
 
 def test_model_preset_keeps_explicit_parallel_and_training_settings():
-    path = ROOT / "configs/exp/3DHarnessBench/sft_view_mix_r1_27b.yaml"
+    path = ROOT / "configs/exp/3DHarnessBench/sft-view_mix-r1-27b.yaml"
     baseline = load_config(path)
     config = load_config(path, ["model=qwen35_9b"])
     assert config.model.path == Path.home() / "models/Qwen3.5-9B"
@@ -89,7 +89,7 @@ def test_model_preset_keeps_explicit_parallel_and_training_settings():
 
 
 def test_official_9b_config_selects_model_and_training_mode():
-    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml")
+    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml")
     assert config.model.path == Path.home() / "models/Qwen3.5-9B"
     assert config.distributed.strategy == "fsdp"
     assert config.model.quantization is not None
@@ -103,16 +103,15 @@ def test_official_9b_config_selects_model_and_training_mode():
 
 def test_composition_paths_ignore_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", [
+    config = load_config(ROOT / "configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml", [
         "scene=active_visual", "distributed=fsdp", "quantization=4bit", "method.learning_rate=0.001",
         "experiment.scene=ActiveVisual", "model=qwen38_27b",
         "experiment.output_dir=../outputs/post_training/ActiveVisual/test",
-        "model.init_from=../outputs/previous/final", "method.resume_from=../outputs/previous/checkpoints/checkpoint-1",
+        "model.init_from=../outputs/previous/final",
     ])
     assert config.experiment.scene == "ActiveVisual"
     assert config.experiment.output_dir == ROOT / "outputs/post_training/ActiveVisual/test"
     assert config.model.init_from == ROOT / "outputs/previous/final"
-    assert config.method.resume_from == ROOT / "outputs/previous/checkpoints/checkpoint-1"
     assert config.data.runs_root == ROOT / "3DHarnessBench/runs"
     assert config.model.path == Path.home() / "models/Qwen3.8-27B"
     assert config.method.learning_rate == .001
@@ -143,12 +142,12 @@ def test_snapshot_preserves_yaml_boolean_like_strings(config, tmp_path):
 ])
 def test_incompatible_combinations_fail_before_loading(overrides, message):
     with pytest.raises(ValidationError, match=message):
-        load_config(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml", overrides)
+        load_config(ROOT / "configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml", overrides)
 
 
 def test_distributed_requires_explicit_launcher(config):
     config.distributed.strategy = "ddp"
-    trainer = Trainer(config)
+    trainer = SFTTrainer(config)
     with pytest.raises(ValueError, match="torchrun"):
         trainer.run()
     assert isinstance(trainer.model, QwenModel)
@@ -159,7 +158,7 @@ def test_script_accepts_hydra_overrides(tmp_path):
     write_trajectory(tmp_path / "runs")
     result = subprocess.run([
         sys.executable, "-m", "harness_training.cli.training", "audit", "--config",
-        str(ROOT / "configs/exp/3DCodeVerse/sft_blender_geo_r1_9b.yaml"),
+        str(ROOT / "configs/exp/3DCodeVerse/sft-blender_geo_only-r1-9b.yaml"),
         "experiment.scene=Single-view", "data.files=null", "data.image_root=null", f"data.runs_root={tmp_path / 'runs'}",
         "distributed=single", "tracking=disabled",
         "data.validation_fraction=0", "data.test_fraction=0",
