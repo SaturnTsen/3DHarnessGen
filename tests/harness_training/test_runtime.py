@@ -76,7 +76,7 @@ def test_pixi_tasks_run_workflow_modules_directly():
 
     manifest = tomllib.loads((ROOT / "pixi.toml").read_text())
     for task, module in (("training", "training"), ("serve", "serve"),
-                         ("validate-trajectory", "validate_trajectory")):
+                         ("validate-trajectory", "validate")):
         assert manifest["tasks"][task] == f"python -m harness_training.cli.{module}"
     assert not {"audit", "prepare", "preview", "train", "check-runtime", "check-resume", "smoke"} & manifest["tasks"].keys()
     assert "post-train" not in manifest["tasks"]

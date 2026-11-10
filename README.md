@@ -21,7 +21,7 @@ Pixi 直接启动 `harness_training/cli/` 下的对应模块：
 | --- | --- | --- |
 | `pixi run training <动作>` | `harness_training/cli/training.py` | audit、prepare、preview、train、check-runtime |
 | `pixi run serve` | `harness_training/cli/serve.py` | 启动 vLLM 服务 |
-| `pixi run validate-trajectory` | `harness_training/cli/validate_trajectory.py` | 校验轨迹文件 |
+| `pixi run validate-trajectory` | `harness_training/cli/validate.py` | 校验轨迹文件 |
 
 命令入口按业务模块组织：训练流程放在一起，服务和轨迹校验分别独立。Hydra 负责组合配置。
 
@@ -102,27 +102,31 @@ pixi run python -m scripts.build_sft_trajectories.clean_astra_trajectories
 ```text
 harness_training/
   config.py              配置契约、组合及快照读写
-  serving.py             适配器服务和 vLLM 启动
   data/                  v3 契约、读取、对象划分和目标选择
   dataloader/            样本索引、模板编码、批次补齐和图片合并
-  templates/             模型输入和目标标签
+  chat_templates/        模型输入和目标标签
   models/
     base.py              模型接口
     qwen/
-      model.py           Qwen 模型、Processor 加载、初始化与环境检查
-      long_context.py    自定义长上下文模型结构
-  training/              BaseTrainer 公共流程、SFTTrainer 及训练后端扩展
-  manifest.py            来源记录、文件指纹与版本
-  tracking.py            实验追踪会话
+      qwen_model.py      Qwen 模型、Processor 加载、初始化与环境检查
+      qwen_long_context.py 自定义长上下文模型结构
+  trainers/
+    base.py              BaseTrainer 公共流程
+    sft_trainer.py       SFTTrainer、参数转换及加载器接入
+    long_context_sft_trainer.py 分块损失与长上下文训练指标
+    tracking.py          实验追踪会话
+  utils/
+    manifest.py          来源记录、文件指纹与版本
+    serving.py           适配器服务和 vLLM 参数构造
   cli/
     training.py          训练全流程：检查、准备、预览和训练
     serve.py             服务命令参数与进程启动
-    validate_trajectory.py 轨迹文件校验命令
+    validate.py          轨迹文件校验命令
 scripts/                 数据清洗与历史运维工具
 ```
 
 `BaseTrainer` 提供数据准备、检查、预览和内部报告保存能力；`SFTTrainer` 直接组织参数校验、后端初始化、训练、验证与最终保存，并持有本次运行的后端。CLI 按 `method.name` 显式构造具体训练器。`MethodConfig` 定义共用设置，`SFTMethodConfig` 定义 SFT 参数及兼容性约束；新增方法时再增加具体训练器、配置类型和构造分支。
 
-长上下文模型结构保留在 `models/qwen/long_context.py`；分块损失与训练指标由 `training/long_context.py` 和 `training/chunked_loss.py` 负责。
+长上下文模型结构保留在 `models/qwen/qwen_long_context.py`；分块损失与训练指标由 `trainers/long_context_sft_trainer.py` 负责。
 
 `SFTDataLoader` 继承 PyTorch 的 `DataLoader`，并在内部完成多模态批次组装。训练器通过这个加载器读取训练集和验证集，并由 Accelerate 处理分布式分配；项目不再提供独立的 `SFTCollator`。

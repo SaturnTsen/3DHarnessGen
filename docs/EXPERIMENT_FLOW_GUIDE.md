@@ -36,12 +36,12 @@ SFTTrainer(config)
 优先阅读：
 
 1. `harness_training/cli/training.py`：按 `method.name` 显式选择具体训练器。
-2. `harness_training/training/base.py`：公共数据流程、训练前检查和内部报告保存。
-3. `harness_training/training/sft.py`：SFT 参数转换、训练主流程与加载器接入。
-4. `harness_training/training/long_context.py`：长上下文后端的计算接口扩展。
-5. `harness_training/manifest.py` 与 `harness_training/tracking.py`：来源记录和实验追踪会话。
+2. `harness_training/trainers/base.py`：公共数据流程、训练前检查和内部报告保存。
+3. `harness_training/trainers/sft_trainer.py`：SFT 参数转换、训练主流程与加载器接入。
+4. `harness_training/trainers/long_context_sft_trainer.py`：长上下文后端的计算接口扩展、分块损失与指标。
+5. `harness_training/utils/manifest.py` 与 `harness_training/trainers/tracking.py`：来源记录和实验追踪会话。
 
-`SFTDataLoader` 管理样本索引、模板编码、补齐和图片合并。`training/sft.py` 中的 `DataLoaderSFTTrainer` 只将项目加载器接入 TRL，采样器及多进程加载由后端和 Accelerate 管理。
+`SFTDataLoader` 管理样本索引、模板编码、补齐和图片合并。`trainers/sft_trainer.py` 中的 `DataLoaderSFTTrainer` 只将项目加载器接入 TRL，采样器及多进程加载由后端和 Accelerate 管理。
 
 当前每次启动新训练，不支持断点恢复。真正的前向、反向传播和参数更新由训练后端执行，checkpoint 和最终模型仍正常保存。
 
@@ -56,6 +56,6 @@ checkpoint 不另设公共类型或模块。模型初始化、服务与来源记
 
 ## 长上下文计算职责
 
-`models/qwen/long_context.py` 保留自定义模型结构、分组激活重计算和图片微批处理。训练器通过正常前向调用请求最后一层隐状态，通过 `get_output_embeddings()` 读取输出层；默认前向仍沿用 Transformers 的标准输出。
+`models/qwen/qwen_long_context.py` 保留自定义模型结构、分组激活重计算和图片微批处理。训练器通过正常前向调用请求最后一层隐状态，通过 `get_output_embeddings()` 读取输出层；默认前向仍沿用 Transformers 的标准输出。
 
-`training/long_context.py` 的 `compute_loss()` 负责调用训练侧的 `chunked_cross_entropy()`，汇总准确率和熵，并处理梯度累积与分布式目标数归一化。`training/chunked_loss.py` 在标签移位后仅选取有效目标位置，按 `loss_chunk_size` 投影和重计算损失，不生成完整轨迹的词表分数。模型不再包含项目自定义的损失或指标输出类型。
+`trainers/long_context_sft_trainer.py` 的 `compute_loss()` 负责调用同一文件中的 `chunked_cross_entropy()`，汇总准确率和熵，并处理梯度累积与分布式目标数归一化。分块损失在标签移位后仅选取有效目标位置，按 `loss_chunk_size` 投影和重计算损失，不生成完整轨迹的词表分数。模型不再包含项目自定义的损失或指标输出类型。

@@ -78,6 +78,7 @@ def test_standard_adapter_base_override_and_passthrough(serving_checkpoint, mode
     tokenizer_option = option_value(command, '--tokenizer')
     assert tokenizer_option is not None
     tokenizer = Path(tokenizer_option)
+    assert tokenizer.parent == Path(__file__).resolve().parents[2] / 'temp/vllm_adapters'
     assert (tokenizer / 'config.json').read_bytes() == (base / 'config.json').read_bytes()
     assert (tokenizer / 'tokenizer_config.json').read_bytes() == (checkpoint / 'tokenizer_config.json').read_bytes()
     assert option_value(command, '--chat-template') == str(checkpoint / 'chat_template.jinja')
@@ -156,6 +157,7 @@ def test_fsdp_config_can_come_from_training_snapshot(serving_checkpoint):
     modules = option_value(command, '--lora-modules')
     assert modules is not None
     adapter = Path(json.loads(modules)['path'])
+    assert adapter.parent == Path(__file__).resolve().parents[2] / 'temp/vllm_adapters'
     reconstructed = json.loads((adapter / 'adapter_config.json').read_text())
     assert reconstructed['r'] == config.model.lora.rank
     assert reconstructed['lora_alpha'] == config.model.lora.alpha

@@ -47,7 +47,7 @@ GPU 数量、显存与长度预算需要按实验机条件设置；本次重构�
 ## 实现边界
 
 - `cli/serve.py`：服务参数解析和进程启动。
-- `serving.py`：适配器导出/校验、vLLM 参数构造及服务启动。
+- `utils/serving.py`：适配器导出/校验及 vLLM 参数构造。
 - 不设置公共 checkpoint 模块；服务在使用处直接读取适配器配置或训练快照，并复用模型侧 LoRA 参数转换。
 - `config.py` 的 `LoRAConfig.to_peft()`：按现有配置构造 PEFT 的 LoRA 配置对象。
 

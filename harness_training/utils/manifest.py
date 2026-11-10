@@ -18,7 +18,7 @@ def backend_versions() -> dict[str, str]:
 
 
 def code_identity() -> dict[str, str]:
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[1]
     return {str(path.relative_to(root)): hash_file(path) for path in sorted(root.rglob("*.py"))}
 
 

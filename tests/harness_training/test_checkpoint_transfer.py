@@ -1,4 +1,4 @@
-P"""Carry trained adapters into another dataset with a fresh training state."""
+"""Carry trained adapters into another dataset with a fresh training state."""
 
 import json
 import os

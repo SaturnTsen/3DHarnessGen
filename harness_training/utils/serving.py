@@ -167,6 +167,7 @@ def validate_adapter(base: Path, adapter: Path, config: dict) -> int:
 
 def build_command(args: argparse.Namespace, passthrough: list[str]) -> tuple[list[str], str]:
     checkpoint = args.checkpoint_path.expanduser().resolve()
+    cache_root = Path(__file__).resolve().parents[2] / "temp/vllm_adapters"
     if not checkpoint.is_dir():
         raise ValueError(f"Checkpoint directory does not exist: {checkpoint}")
     run_dir = checkpoint.parent.parent if checkpoint.parent.name == "checkpoints" else checkpoint.parent
@@ -188,7 +189,6 @@ def build_command(args: argparse.Namespace, passthrough: list[str]) -> tuple[lis
     if not (base / "config.json").is_file():
         raise ValueError(f"Base config.json is unavailable at {base}; provide --base-model-path with model files")
     if (checkpoint / "pytorch_model_fsdp_0/.metadata").is_file():
-        cache_root = Path(__file__).resolve().parents[1] / "temp/vllm_adapters"
         adapter = extract_fsdp_adapter(checkpoint, config, cache_root)
     else:
         adapter = checkpoint
@@ -212,7 +212,7 @@ def build_command(args: argparse.Namespace, passthrough: list[str]) -> tuple[lis
             raise ValueError(f"LoRA rank {rank} is unsupported by vLLM 0.30.0")
         command += ["--max-lora-rank", str(selected_rank)]
     if not has_option(passthrough, "--tokenizer") and (checkpoint / "tokenizer_config.json").is_file():
-        tokenizer = prepare_tokenizer(checkpoint, base, Path(__file__).resolve().parents[1] / "temp/vllm_adapters")
+        tokenizer = prepare_tokenizer(checkpoint, base, cache_root)
         command += ["--tokenizer", str(tokenizer)]
     if not has_option(passthrough, "--chat-template") and (checkpoint / "chat_template.jinja").is_file():
         command += ["--chat-template", str(checkpoint / "chat_template.jinja")]

@@ -181,7 +181,7 @@ def test_strict_json(raw):
 def test_script_json_and_jsonl(record, tmp_path):
     path = tmp_path / "trajectory.json"
     path.write_text(json.dumps(record, indent=2))
-    command = [sys.executable, "-m", "harness_training.cli.validate_trajectory"]
+    command = [sys.executable, "-m", "harness_training.cli.validate"]
     result = subprocess.run([*command, str(path)], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "1 条通过" in result.stdout

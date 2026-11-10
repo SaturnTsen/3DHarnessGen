@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from harness_training.config import TrainingConfig, load_config
-from harness_training.tracking import tracking_session
+from harness_training.trainers.tracking import tracking_session
 from harness_training.trainers.sft_trainer import SFTTrainer
 from conftest import read_wandb_records
 

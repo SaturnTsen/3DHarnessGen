@@ -11,7 +11,7 @@ from typing import Literal
 from harness_training.config import TrainingConfig, save_config
 from harness_training.data.base import BaseDataset, DatasetBundle
 from harness_training.data.trajectory import TrajectoryDataset
-from harness_training.manifest import build_manifest
+from harness_training.utils.manifest import build_manifest
 from harness_training.models.base import BaseModel
 from harness_training.models.qwen import QwenModel
 from harness_training.chat_templates.base import BaseTemplate, SampleTooLong, TemplateError

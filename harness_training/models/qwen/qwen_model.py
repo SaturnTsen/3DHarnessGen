@@ -168,7 +168,7 @@ class QwenModel(BaseModel):
             )
         model_class = AutoModelForImageTextToText
         if self.long_context is not None:
-            from .long_context import LongContextQwenForConditionalGeneration
+            from .qwen_long_context import LongContextQwenForConditionalGeneration
 
             if model_config.model_type != "qwen3_5":
                 raise ValueError("long_context requires the qwen3_5 multimodal architecture")

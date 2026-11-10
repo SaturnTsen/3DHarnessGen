@@ -13,7 +13,7 @@ from harness_training.config import TrainingConfig
 from harness_training.data.base import DatasetBundle
 from harness_training.dataloader import SFTDataLoader
 from harness_training.chat_templates.base import BaseTemplate
-from harness_training.tracking import tracking_session
+from harness_training.trainers.tracking import tracking_session
 from harness_training.types import Metrics
 from .base import BaseTrainer
 
@@ -66,7 +66,7 @@ class SFTTrainer(BaseTrainer):
         trainer_class = DataLoaderSFTTrainer
         backend_options = {}
         if cfg.long_context is not None:
-            from .long_context import LongContextSFTTrainer
+            from .long_context_sft_trainer import LongContextSFTTrainer
 
             trainer_class = LongContextSFTTrainer
             backend_options["loss_chunk_size"] = cfg.long_context.loss_chunk_size

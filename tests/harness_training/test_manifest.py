@@ -2,8 +2,9 @@
 
 import hashlib
 import json
+from pathlib import Path
 
-from harness_training.manifest import build_manifest, hash_file, hash_source, model_sources
+from harness_training.utils.manifest import build_manifest, hash_file, hash_source, model_sources
 from harness_training.trainers.sft_trainer import SFTTrainer
 from harness_training.types import Manifest
 
@@ -18,8 +19,13 @@ def test_manifest_records_inputs_and_preserves_fingerprint(config):
     assert manifest["targets"]["train"] == [example.id for example in data.train]
     image = data.train[0].record.images_by_message[1][0]
     assert manifest["sources"][str(image)] == hash_file(image)
-    assert "manifest.py" in manifest["code"]
-    assert "training/sft.py" in manifest["code"]
+    package = Path(__file__).resolve().parents[2] / "harness_training"
+    for name in (
+        "utils/manifest.py", "utils/serving.py", "data/trajectory.py", "chat_templates/qwen.py",
+        "models/qwen/qwen_model.py", "models/qwen/qwen_long_context.py",
+        "dataloader/sft_dataloader.py", "trainers/sft_trainer.py", "trainers/long_context_sft_trainer.py",
+    ):
+        assert manifest["code"][name] == hash_file(package / name)
 
 
 def test_fsdp_sources_include_snapshot_metadata_and_shards(config, tmp_path):
